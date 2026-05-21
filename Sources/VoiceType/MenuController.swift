@@ -85,6 +85,10 @@ final class MenuController: NSObject {
         let paste = NSMenuItem(title: "Paste Test Text", action: #selector(pasteTestText), keyEquivalent: "")
         paste.target = self
         submenu.addItem(paste)
+
+        let record = NSMenuItem(title: "Record 2s Test", action: #selector(recordTest), keyEquivalent: "")
+        record.target = self
+        submenu.addItem(record)
         submenu.addItem(.separator())
 
         let showDiagnostics = NSMenuItem(title: "Show Recent Diagnostics...", action: #selector(showDiagnostics), keyEquivalent: "")
@@ -359,6 +363,15 @@ final class MenuController: NSObject {
     @objc private func pasteTestText() {
         VoiceTypeLogger.log("menu.pasteTestText")
         coordinator.injectDiagnosticText("VoiceType paste test 中文 English 123")
+    }
+
+    @objc private func recordTest() {
+        VoiceTypeLogger.log("menu.recordTest.start duration=2.00")
+        coordinator.beginHold()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            VoiceTypeLogger.log("menu.recordTest.stop")
+            self?.coordinator.endHold()
+        }
     }
 
     @objc private func showDiagnostics() {

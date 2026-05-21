@@ -75,7 +75,8 @@ final class DictationPipeline {
             handleTranscript(job.appleText, for: job)
         case .localQwen06, .localQwen17:
             guard let model = job.backend.localModel, let audioURL = job.audioURL else {
-                postStatus(.failed("Local STT missing audio"))
+                VoiceTypeLogger.warning("pipeline.localSTT.noAudio sequence=\(job.sequence)")
+                postStatus(.failed("No speech detected"))
                 injectionScheduler.finishJob(sequence: job.sequence)
                 return
             }
@@ -94,7 +95,8 @@ final class DictationPipeline {
             }
         case .cloud:
             guard let audioURL = job.audioURL else {
-                postStatus(.failed("Cloud STT missing audio"))
+                VoiceTypeLogger.warning("pipeline.cloudSTT.noAudio sequence=\(job.sequence)")
+                postStatus(.failed("No speech detected"))
                 injectionScheduler.finishJob(sequence: job.sequence)
                 return
             }
