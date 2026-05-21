@@ -21,9 +21,9 @@ struct AudioInputDevice: Equatable {
 
 enum AudioDeviceManager {
     static func inputDevices() -> [AudioInputDevice] {
-        allDevices()
+        let devices: [AudioInputDevice] = allDevices()
             .filter { hasInputStreams($0) }
-            .compactMap { deviceID in
+            .compactMap { deviceID -> AudioInputDevice? in
                 guard let name = stringProperty(deviceID, selector: kAudioObjectPropertyName, scope: kAudioObjectPropertyScopeGlobal),
                       let uid = stringProperty(deviceID, selector: kAudioDevicePropertyDeviceUID, scope: kAudioObjectPropertyScopeGlobal) else {
                     return nil
@@ -44,11 +44,15 @@ enum AudioDeviceManager {
                 }
                 return left.name.localizedCaseInsensitiveCompare(right.name) == .orderedAscending
             }
+        VoiceTypeLogger.log("audioDevices.inputDevices count=\(devices.count) devices=\(devices.map { "\($0.name)|\($0.uid)|\($0.id)|\($0.transportType)" }.joined(separator: ";"))")
+        return devices
     }
 
     static func device(for uid: String) -> AudioInputDevice? {
         guard !uid.isEmpty else { return nil }
-        return inputDevices().first { $0.uid == uid }
+        let device = inputDevices().first { $0.uid == uid }
+        VoiceTypeLogger.log("audioDevices.lookup uid=\(uid) found=\(device?.name ?? "nil")")
+        return device
     }
 
     static func defaultInputDevice() -> AudioDeviceID? {
@@ -67,7 +71,11 @@ enum AudioDeviceManager {
             &size,
             &deviceID
         )
-        guard status == noErr, deviceID != 0 else { return nil }
+        guard status == noErr, deviceID != 0 else {
+            VoiceTypeLogger.log("audioDevices.defaultInput.failed status=\(status) deviceID=\(deviceID)")
+            return nil
+        }
+        VoiceTypeLogger.log("audioDevices.defaultInput deviceID=\(deviceID)")
         return deviceID
     }
 

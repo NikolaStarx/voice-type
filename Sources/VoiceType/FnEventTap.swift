@@ -16,6 +16,7 @@ final class FnEventTap {
 
     func start() {
         guard eventTap == nil else { return }
+        VoiceTypeLogger.log("fnTap.start preflight listen=\(CGPreflightListenEventAccess())")
         guard CGPreflightListenEventAccess() else {
             startFallbackMonitor(reason: "Input Monitoring")
             postStatus(.permissionMissing("Input Monitoring"))
@@ -37,6 +38,7 @@ final class FnEventTap {
         guard let eventTap else {
             startFallbackMonitor(reason: "Event tap unavailable")
             postStatus(.failed("Event tap unavailable"))
+            VoiceTypeLogger.log("fnTap.create.failed")
             return
         }
         runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
@@ -45,9 +47,11 @@ final class FnEventTap {
         }
         CGEvent.tapEnable(tap: eventTap, enable: true)
         postStatus(.runningSuppressed)
+        VoiceTypeLogger.log("fnTap.runningSuppressed")
     }
 
     func stop() {
+        VoiceTypeLogger.log("fnTap.stop")
         if let eventTap {
             CGEvent.tapEnable(tap: eventTap, enable: false)
         }
@@ -68,6 +72,7 @@ final class FnEventTap {
             if let eventTap {
                 CGEvent.tapEnable(tap: eventTap, enable: true)
             }
+            VoiceTypeLogger.log("fnTap.reenabled type=\(type.rawValue)")
             return Unmanaged.passUnretained(event)
         }
 
@@ -86,9 +91,11 @@ final class FnEventTap {
 
         if fnDown && !isFnDown {
             isFnDown = true
+            VoiceTypeLogger.log("fnTap.press keyCode=\(keyCode) flags=\(flags.rawValue)")
             DispatchQueue.main.async { self.onPress() }
         } else if !fnDown && isFnDown {
             isFnDown = false
+            VoiceTypeLogger.log("fnTap.release keyCode=\(keyCode) flags=\(flags.rawValue)")
             DispatchQueue.main.async { self.onRelease() }
         }
 
@@ -101,6 +108,7 @@ final class FnEventTap {
             self?.handleFallback(event: event)
         }
         postStatus(.runningObserveOnly)
+        VoiceTypeLogger.log("fnTap.fallback reason=\(reason)")
         NSLog("VoiceType Fn listener fallback mode: \(reason)")
     }
 
@@ -110,9 +118,11 @@ final class FnEventTap {
         guard looksLikeFn else { return }
         if fnDown && !isFnDown {
             isFnDown = true
+            VoiceTypeLogger.log("fnTap.fallback.press keyCode=\(event.keyCode) flags=\(event.modifierFlags.rawValue)")
             DispatchQueue.main.async { self.onPress() }
         } else if !fnDown && isFnDown {
             isFnDown = false
+            VoiceTypeLogger.log("fnTap.fallback.release keyCode=\(event.keyCode) flags=\(event.modifierFlags.rawValue)")
             DispatchQueue.main.async { self.onRelease() }
         }
     }
@@ -128,9 +138,11 @@ final class FnEventTap {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
             guard let self, self.eventTap == nil else { return }
             if CGPreflightListenEventAccess() {
+                VoiceTypeLogger.log("fnTap.retry.permissionDetected")
                 self.stop()
                 self.start()
             } else {
+                VoiceTypeLogger.log("fnTap.retry.waiting attemptsRemaining=\(attemptsRemaining)")
                 self.retryAfterPermissionIfNeeded(attemptsRemaining: attemptsRemaining - 1)
             }
         }

@@ -5,7 +5,8 @@ import CoreGraphics
 
 final class TextInjector {
     func inject(text: String, completion: @escaping (Bool) -> Void) {
-        VoiceTypeLogger.log("textInjector.inject chars=\(text.count) text=\(text)")
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        VoiceTypeLogger.log("textInjector.inject chars=\(text.count) axTrusted=\(AXIsProcessTrusted()) postEvents=\(CGPreflightPostEventAccess()) frontmost=\(frontmost?.localizedName ?? "nil") bundle=\(frontmost?.bundleIdentifier ?? "nil") text=\(text)")
         if AccessibilityTextInjector.inject(text: text) {
             VoiceTypeLogger.log("textInjector.ax.success")
             completion(true)
@@ -15,11 +16,14 @@ final class TextInjector {
 
         guard CGPreflightPostEventAccess() else {
             VoiceTypeLogger.log("textInjector.postEventAccess.missing")
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            VoiceTypeLogger.log("textInjector.permissionFallback.copiedToClipboard chars=\(text.count)")
             NotificationCenter.default.post(
                 name: .voiceTypeInjectionFailed,
-                object: "Text injection needs Accessibility or Paste Events permission"
+                object: "Text injection needs Accessibility or Paste Events permission. Text copied to clipboard."
             )
-            completion(false)
+            completion(true)
             return
         }
 
@@ -37,9 +41,10 @@ final class TextInjector {
 
             pasteboard.clearContents()
             pasteboard.setString(text, forType: .string)
-            VoiceTypeLogger.log("textInjector.pasteboard.set")
+            VoiceTypeLogger.log("textInjector.pasteboard.set changeCount=\(pasteboard.changeCount)")
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                VoiceTypeLogger.log("textInjector.postPasteShortcut")
                 Self.postPasteShortcut()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.38) {
                     snapshot.restore(to: pasteboard)
@@ -47,7 +52,7 @@ final class TextInjector {
                         VoiceTypeLogger.log("textInjector.restoreInputSource")
                         TISSelectInputSource(originalSource)
                     }
-                    VoiceTypeLogger.log("textInjector.complete")
+                    VoiceTypeLogger.log("textInjector.complete restoredClipboard=true")
                     completion(true)
                 }
             }
@@ -85,6 +90,7 @@ private enum AccessibilityTextInjector {
             VoiceTypeLogger.log("axInjector.noFocusedElement error=\(focusedError.rawValue)")
             return false
         }
+        VoiceTypeLogger.log("axInjector.focusedElement.ok")
 
         if setSelectedText(text, element: focusedElement) {
             return true
@@ -115,7 +121,7 @@ private enum AccessibilityTextInjector {
         )
         guard valueError == .success,
               let current = valueObject as? String else {
-            VoiceTypeLogger.log("axInjector.value.read.failed error=\(valueError.rawValue)")
+            VoiceTypeLogger.log("axInjector.value.read.failed error=\(valueError.rawValue) valueType=\(String(describing: valueObject.map { type(of: $0) }))")
             return false
         }
 

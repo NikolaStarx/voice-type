@@ -5,12 +5,12 @@ APP_BUNDLE := $(BUILD_DIR)/$(APP_NAME).app
 EXECUTABLE := .build/$(CONFIG)/$(APP_NAME)
 RESOURCES := Resources
 INSTALL_DIR := $(HOME)/Applications
-LOCAL_SIGN_IDENTITY := $(shell security find-identity -v -p codesigning 2>/dev/null | awk -F\" '/VoiceType Local Code Signing/ { print $$2; exit }')
-SIGN_IDENTITY ?= $(if $(LOCAL_SIGN_IDENTITY),$(LOCAL_SIGN_IDENTITY),-)
+SIGN_KEYCHAIN := $(HOME)/Library/Application Support/VoiceType/Signing/VoiceTypeBuild.keychain-db
+SIGN_IDENTITY ?= VoiceType Build Code Signing
 
-.PHONY: build run install clean icon
+.PHONY: build run install clean icon signing diagnose
 
-build: icon
+build: icon signing
 	swift build -c $(CONFIG)
 	rm -rf "$(APP_BUNDLE)"
 	mkdir -p "$(APP_BUNDLE)/Contents/MacOS" "$(APP_BUNDLE)/Contents/Resources"
@@ -24,6 +24,9 @@ build: icon
 icon:
 	swift Tools/GenerateIcon.swift
 
+signing:
+	Tools/EnsureBuildSigningIdentity.sh
+
 run: build
 	open "$(APP_BUNDLE)"
 
@@ -32,6 +35,9 @@ install: build
 	rm -rf "$(INSTALL_DIR)/$(APP_NAME).app"
 	cp -R "$(APP_BUNDLE)" "$(INSTALL_DIR)/$(APP_NAME).app"
 	@echo "Installed: $(INSTALL_DIR)/$(APP_NAME).app"
+
+diagnose:
+	Tools/RunDiagnostics.sh
 
 clean:
 	rm -rf .build "$(BUILD_DIR)" "$(RESOURCES)/AppIcon.iconset" "$(RESOURCES)/AppIcon.icns"

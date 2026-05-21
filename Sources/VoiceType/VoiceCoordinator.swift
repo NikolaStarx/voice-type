@@ -25,8 +25,10 @@ final class VoiceCoordinator {
     }
 
     func beginHold() {
-        guard !isRecording else { return }
-        VoiceTypeLogger.log("coordinator.beginHold")
+        guard !isRecording else {
+            VoiceTypeLogger.log("coordinator.beginHold.ignored alreadyRecording=true")
+            return
+        }
         isRecording = true
         pipeline.setRecordingActive(true)
         lastHoldStartedAt = Date()
@@ -37,6 +39,7 @@ final class VoiceCoordinator {
         let language = settings.language
         let inputDeviceUID = settings.selectedInputDeviceUID
         let llmSettings = settings.llm
+        VoiceTypeLogger.log("coordinator.beginHold session=\(sessionID.uuidString) backend=\(backend.rawValue) language=\(language.rawValue) inputDevice=\(inputDeviceUID.isEmpty ? "default" : inputDeviceUID) llmEnabled=\(llmSettings.enabled) profile=\(llmSettings.activeProfile.name) segmentation=\(llmSettings.activeProfile.segmentationStrategy.rawValue)")
         if backend == .appleSpeech,
            llmSettings.activeProfile.segmentationStrategy == .pauseBatches {
             pauseBatcher = PauseBatchSegmenter(llmSettings: llmSettings) { [weak self] text, settings in
@@ -54,6 +57,7 @@ final class VoiceCoordinator {
             try capture.start(
                 partialHandler: { [weak self] text in
                     guard let self, self.activeSessionID == sessionID else { return }
+                    VoiceTypeLogger.log("coordinator.partial session=\(sessionID.uuidString) chars=\(text.count)")
                     self.floatingPanel.update(text: text)
                     self.pauseBatcher?.updateTranscript(text)
                 },
@@ -76,7 +80,7 @@ final class VoiceCoordinator {
 
     func endHold() {
         guard isRecording, let session else { return }
-        VoiceTypeLogger.log("coordinator.endHold")
+        VoiceTypeLogger.log("coordinator.endHold session=\(activeSessionID?.uuidString ?? "nil")")
         let releasedBackend = settings.backend
         let releasedLanguage = settings.language
         let releasedPauseBatcher = pauseBatcher
@@ -91,11 +95,12 @@ final class VoiceCoordinator {
             session.cancel()
             pipeline.setRecordingActive(false)
             floatingPanel.hide()
-            VoiceTypeLogger.log("coordinator.endHold.tooShort")
+            VoiceTypeLogger.log("coordinator.endHold.tooShort held=\(Date().timeIntervalSince(start))")
             return
         }
 
         floatingPanel.updateStatus("Queued")
+        VoiceTypeLogger.log("coordinator.queued session=\(releasedSessionID?.uuidString ?? "nil") backend=\(releasedBackend.rawValue)")
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
             guard self?.activeSessionID == nil else { return }
             self?.floatingPanel.hide()
@@ -105,6 +110,7 @@ final class VoiceCoordinator {
             guard let self else { return }
             DispatchQueue.main.async {
                 let noNewRecording = self.activeSessionID == nil || self.activeSessionID == releasedSessionID
+                VoiceTypeLogger.log("coordinator.captureStopped session=\(releasedSessionID?.uuidString ?? "nil") appleChars=\(appleText.count) audio=\(audioURL?.path ?? "nil") noNewRecording=\(noNewRecording)")
                 if let releasedPauseBatcher, releasedBackend == .appleSpeech {
                     releasedPauseBatcher.flushFinal(appleText)
                     if noNewRecording {

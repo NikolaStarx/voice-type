@@ -10,7 +10,7 @@ final class PermissionsManager {
     private let settings = SettingsStore.shared
 
     func requestInitialPermissionsOnce() {
-        VoiceTypeLogger.log("permissions.preflight \(statusSummary())")
+        VoiceTypeLogger.log("permissions.startupPreflight \(statusSummary())")
         requestSpeechIfNeeded()
         requestMicrophoneIfNeeded()
     }
@@ -24,6 +24,7 @@ final class PermissionsManager {
     }
 
     func requestEventPermissionsNow() {
+        VoiceTypeLogger.log("permissions.requestEventPermissionsNow.before \(statusSummary())")
         _ = CGRequestListenEventAccess()
         _ = CGRequestPostEventAccess()
         let options = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as String: true] as CFDictionary
@@ -31,13 +32,18 @@ final class PermissionsManager {
         settings.didRequestAccessibility = true
         settings.didRequestListenEvents = true
         settings.didRequestPostEvents = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            VoiceTypeLogger.log("permissions.requestEventPermissionsNow.after \(self.statusSummary())")
+        }
     }
 
     func openAccessibilitySettings() {
+        VoiceTypeLogger.log("permissions.openAccessibilitySettings")
         openSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
     }
 
     func openInputMonitoringSettings() {
+        VoiceTypeLogger.log("permissions.openInputMonitoringSettings")
         openSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")
     }
 

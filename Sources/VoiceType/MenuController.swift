@@ -32,6 +32,7 @@ final class MenuController: NSObject {
     }
 
     private func rebuildMenu() {
+        VoiceTypeLogger.log("menu.rebuild fnStatus=\(fnStatus.title) localStatus=\(localStatus.title)")
         let menu = NSMenu()
 
         let title = NSMenuItem(title: "VoiceType", action: nil, keyEquivalent: "")
@@ -258,12 +259,14 @@ final class MenuController: NSObject {
     @objc private func selectLanguage(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String,
               let language = LanguageOption(rawValue: raw) else { return }
+        VoiceTypeLogger.log("menu.selectLanguage \(language.rawValue)")
         settings.language = language
     }
 
     @objc private func selectBackend(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String,
               let backend = SpeechBackend(rawValue: raw) else { return }
+        VoiceTypeLogger.log("menu.selectBackend \(backend.rawValue)")
         settings.backend = backend
         if let model = backend.localModel {
             localAI.prepare(model: model)
@@ -272,23 +275,27 @@ final class MenuController: NSObject {
 
     @objc private func selectInputDevice(_ sender: NSMenuItem) {
         guard let uid = sender.representedObject as? String else { return }
+        VoiceTypeLogger.log("menu.selectInputDevice uid=\(uid.isEmpty ? "default" : uid)")
         settings.selectedInputDeviceUID = uid
     }
 
     @objc private func toggleLocalAutoPrepare() {
         settings.localAutoPrepare.toggle()
+        VoiceTypeLogger.log("menu.toggleLocalAutoPrepare enabled=\(settings.localAutoPrepare)")
         if settings.localAutoPrepare {
             localAI.prepareAllInBackground()
         }
     }
 
     @objc private func prepareLocalModels() {
+        VoiceTypeLogger.log("menu.prepareLocalModels")
         localAI.prepareAllInBackground()
     }
 
     @objc private func toggleLLM() {
         var llm = settings.llm
         llm.enabled.toggle()
+        VoiceTypeLogger.log("menu.toggleLLM enabled=\(llm.enabled)")
         settings.llm = llm
     }
 
@@ -296,10 +303,12 @@ final class MenuController: NSObject {
         guard let profileID = sender.representedObject as? String else { return }
         var llm = settings.llm
         llm.activeProfileID = profileID
+        VoiceTypeLogger.log("menu.selectLLMProfile id=\(profileID)")
         settings.llm = llm
     }
 
     @objc private func openLLMSettings() {
+        VoiceTypeLogger.log("menu.openLLMSettings")
         if llmWindow == nil {
             llmWindow = LLMSettingsWindowController()
         }
@@ -308,6 +317,7 @@ final class MenuController: NSObject {
     }
 
     @objc private func openSTTSettings() {
+        VoiceTypeLogger.log("menu.openSTTSettings")
         if sttWindow == nil {
             sttWindow = STTSettingsWindowController()
         }
@@ -324,24 +334,29 @@ final class MenuController: NSObject {
     }
 
     @objc private func requestPermissions() {
+        VoiceTypeLogger.log("menu.requestPermissions")
         PermissionsManager.shared.requestEventPermissionsNow()
         restartFnListener()
     }
 
     @objc private func restartFnListener() {
+        VoiceTypeLogger.log("menu.restartFnListener")
         fnEventTap.stop()
         fnEventTap.start()
     }
 
     @objc private func pasteTestText() {
+        VoiceTypeLogger.log("menu.pasteTestText")
         coordinator.injectDiagnosticText("VoiceType paste test 中文 English 123")
     }
 
     @objc private func clearLog() {
+        VoiceTypeLogger.log("menu.clearLog")
         VoiceTypeLogger.clear()
     }
 
     @objc private func revealLog() {
+        VoiceTypeLogger.log("menu.revealLog")
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let url = base.appendingPathComponent("VoiceType/voice-type.log")
         NSWorkspace.shared.activateFileViewerSelecting([url])

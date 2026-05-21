@@ -137,6 +137,7 @@ final class DictationPipeline {
     private func refineSegments(_ segments: [TranscriptSegment], for job: DictationJob) {
         let settings = job.llmSettings
         let maxConcurrent = maxConcurrentRefinements(for: settings.activeProfile.reasoningEffort)
+        VoiceTypeLogger.log("pipeline.refine.start sequence=\(job.sequence) segments=\(segments.count) profile=\(settings.activeProfile.name) effort=\(settings.activeProfile.reasoningEffort.rawValue) maxConcurrent=\(maxConcurrent)")
         let coordinationQueue = DispatchQueue(label: "VoiceType.DictationPipeline.refine.\(job.sequence)")
         var nextIndex = 0
         var running = 0
@@ -149,6 +150,7 @@ final class DictationPipeline {
                     let segment = segments[index]
                     nextIndex += 1
                     running += 1
+                    VoiceTypeLogger.log("pipeline.refine.request sequence=\(job.sequence) segment=\(index)/\(segments.count) chars=\(segment.text.count) text=\(segment.text)")
 
                     func complete(with text: String) {
                         coordinationQueue.async {
@@ -175,7 +177,8 @@ final class DictationPipeline {
                         case .success(let value):
                             let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
                             refined = clean.isEmpty ? segment.text : clean
-                        case .failure:
+                        case .failure(let error):
+                            VoiceTypeLogger.log("pipeline.refine.failure sequence=\(job.sequence) segment=\(index) error=\(error.localizedDescription)")
                             refined = segment.text
                         }
                         complete(with: refined)
@@ -183,6 +186,7 @@ final class DictationPipeline {
 
                     let timeout = self.softTimeout(for: settings.activeProfile.reasoningEffort, text: segment.text)
                     DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + timeout) {
+                        VoiceTypeLogger.log("pipeline.refine.timeout sequence=\(job.sequence) segment=\(index) timeout=\(timeout)")
                         task?.cancel()
                         complete(with: segment.text)
                     }
@@ -347,12 +351,14 @@ private final class InjectionScheduler {
     func setRecordingActive(_ active: Bool) {
         queue.async {
             self.recordingActive = active
+            VoiceTypeLogger.log("injectorScheduler.recordingActive=\(active)")
             self.drain()
         }
     }
 
     func registerJob(sequence: Int) {
         queue.async {
+            VoiceTypeLogger.log("injectorScheduler.registerJob sequence=\(sequence) expectedSequence=\(self.expectedSequence)")
             if self.expectedSequence == 1 && sequence < self.expectedSequence {
                 self.expectedSequence = sequence
             }
@@ -385,17 +391,32 @@ private final class InjectionScheduler {
     }
 
     private func drain() {
-        guard !recordingActive, !injecting else { return }
+        guard !recordingActive else {
+            VoiceTypeLogger.log("injectorScheduler.drain.blocked recordingActive=true expectedSequence=\(expectedSequence) expectedSegment=\(expectedSegmentIndex)")
+            return
+        }
+        guard !injecting else {
+            VoiceTypeLogger.log("injectorScheduler.drain.blocked injecting=true expectedSequence=\(expectedSequence) expectedSegment=\(expectedSegmentIndex)")
+            return
+        }
 
         while segmentCounts[expectedSequence] == 0 {
+            VoiceTypeLogger.log("injectorScheduler.drain.skipEmpty sequence=\(expectedSequence)")
             segmentCounts.removeValue(forKey: expectedSequence)
             pendingSegments.removeValue(forKey: expectedSequence)
             expectedSequence += 1
             expectedSegmentIndex = 0
         }
 
-        guard let segmentCount = segmentCounts[expectedSequence], segmentCount > 0 else { return }
-        guard let text = pendingSegments[expectedSequence]?[expectedSegmentIndex] else { return }
+        guard let segmentCount = segmentCounts[expectedSequence], segmentCount > 0 else {
+            VoiceTypeLogger.log("injectorScheduler.drain.waitingForJob expectedSequence=\(expectedSequence)")
+            return
+        }
+        guard let text = pendingSegments[expectedSequence]?[expectedSegmentIndex] else {
+            let available = pendingSegments[expectedSequence]?.keys.sorted().map(String.init).joined(separator: ",") ?? ""
+            VoiceTypeLogger.log("injectorScheduler.drain.waitingForSegment sequence=\(expectedSequence) expectedSegment=\(expectedSegmentIndex) available=[\(available)]")
+            return
+        }
 
         pendingSegments[expectedSequence]?[expectedSegmentIndex] = nil
         injecting = true

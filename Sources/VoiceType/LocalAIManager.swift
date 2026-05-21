@@ -20,25 +20,30 @@ final class LocalAIManager {
     }
 
     func prepareAllInBackground() {
+        VoiceTypeLogger.log("localAI.prepareAllInBackground")
         for model in LocalASRModel.allCases {
             prepare(model: model)
         }
     }
 
     func prepare(model: LocalASRModel) {
+        VoiceTypeLogger.log("localAI.prepare.request model=\(model.repoID)")
         prepare(model: model) { _ in }
     }
 
     func transcribe(audioURL: URL, model: LocalASRModel, language: LanguageOption, completion: @escaping (Result<String, Error>) -> Void) {
+        VoiceTypeLogger.log("localAI.transcribe.request model=\(model.repoID) language=\(language.rawValue) audio=\(audioURL.path)")
         prepare(model: model) { [weak self] result in
             guard let self else { return }
             switch result {
             case .failure(let error):
+                VoiceTypeLogger.log("localAI.prepare.failedForTranscribe model=\(model.repoID) error=\(error.localizedDescription)")
                 completion(.failure(error))
             case .success:
                 self.startServerIfNeeded()
                 self.waitForServer(timeout: 45) { ready in
                     guard ready else {
+                        VoiceTypeLogger.log("localAI.server.notReady timeout=45")
                         completion(.failure(NSError.voiceType("Local ASR server did not become ready")))
                         return
                     }
@@ -49,6 +54,7 @@ final class LocalAIManager {
     }
 
     func shutdown() {
+        VoiceTypeLogger.log("localAI.shutdown")
         processLock.lock()
         let server = serverProcess
         let bootstraps = Array(bootstrapProcesses.values)
@@ -65,11 +71,13 @@ final class LocalAIManager {
     private func prepare(model: LocalASRModel, completion: @escaping (Result<Void, Error>) -> Void) {
         queue.async {
             if self.preparingModels.contains(model) {
+                VoiceTypeLogger.log("localAI.prepare.alreadyRunning model=\(model.repoID)")
                 self.waitForModel(model, completion: completion)
                 return
             }
             self.preparingModels.insert(model)
             self.postStatus(.preparing("Preparing \(model.title)"))
+            VoiceTypeLogger.log("localAI.prepare.start model=\(model.repoID) home=\(self.supportDirectory.path)")
             do {
                 try FileManager.default.createDirectory(at: self.supportDirectory, withIntermediateDirectories: true)
                 guard let bootstrap = self.localAIScript(named: "bootstrap_local_asr.py") else {
@@ -88,6 +96,7 @@ final class LocalAIManager {
                 log.seekToEndOfFile()
                 process.standardOutput = log
                 process.standardError = log
+                VoiceTypeLogger.log("localAI.bootstrap.run model=\(model.repoID) log=\(logURL.path)")
                 try process.run()
                 self.processLock.lock()
                 self.bootstrapProcesses[model] = process
@@ -97,6 +106,7 @@ final class LocalAIManager {
                 self.bootstrapProcesses[model] = nil
                 self.processLock.unlock()
                 log.closeFile()
+                VoiceTypeLogger.log("localAI.bootstrap.exit model=\(model.repoID) status=\(process.terminationStatus)")
                 if process.terminationStatus != 0 {
                     throw NSError.voiceType("Bootstrap exited with status \(process.terminationStatus). See \(logURL.path)")
                 }
@@ -106,6 +116,7 @@ final class LocalAIManager {
             } catch {
                 self.preparingModels.remove(model)
                 self.postStatus(.failed(error.localizedDescription))
+                VoiceTypeLogger.log("localAI.prepare.failed model=\(model.repoID) error=\(error.localizedDescription)")
                 completion(.failure(error))
             }
         }
@@ -114,8 +125,10 @@ final class LocalAIManager {
     private func waitForModel(_ model: LocalASRModel, completion: @escaping (Result<Void, Error>) -> Void) {
         queue.asyncAfter(deadline: .now() + 2) {
             if self.preparingModels.contains(model) {
+                VoiceTypeLogger.log("localAI.waitForModel.pending model=\(model.repoID)")
                 self.waitForModel(model, completion: completion)
             } else {
+                VoiceTypeLogger.log("localAI.waitForModel.ready model=\(model.repoID)")
                 completion(.success(()))
             }
         }
@@ -126,10 +139,12 @@ final class LocalAIManager {
         let existingServer = serverProcess
         processLock.unlock()
         if let existingServer, existingServer.isRunning {
+            VoiceTypeLogger.log("localAI.server.alreadyRunning pid=\(existingServer.processIdentifier)")
             return
         }
         guard FileManager.default.isExecutableFile(atPath: venvPython.path),
               let serverScript = localAIScript(named: "stt_server.py") else {
+            VoiceTypeLogger.log("localAI.server.cannotStart python=\(venvPython.path) exists=\(FileManager.default.isExecutableFile(atPath: venvPython.path))")
             return
         }
 
@@ -147,6 +162,7 @@ final class LocalAIManager {
             log.seekToEndOfFile()
             process.standardOutput = log
             process.standardError = log
+            VoiceTypeLogger.log("localAI.server.run log=\(logURL.path)")
             try process.run()
             processLock.lock()
             serverProcess = process
@@ -154,6 +170,7 @@ final class LocalAIManager {
             postStatus(.preparing("Starting local ASR server"))
         } catch {
             postStatus(.failed(error.localizedDescription))
+            VoiceTypeLogger.log("localAI.server.start.failed error=\(error.localizedDescription)")
         }
     }
 
@@ -161,6 +178,7 @@ final class LocalAIManager {
         let started = Date()
         func poll() {
             guard Date().timeIntervalSince(started) < timeout else {
+                VoiceTypeLogger.log("localAI.server.poll.timeout")
                 completion(false)
                 return
             }
@@ -171,8 +189,11 @@ final class LocalAIManager {
             URLSession.shared.dataTask(with: url) { _, response, _ in
                 if let http = response as? HTTPURLResponse, http.statusCode == 200 {
                     self.postStatus(.ready("Local ASR server ready"))
+                    VoiceTypeLogger.log("localAI.server.poll.ready status=\(http.statusCode)")
                     completion(true)
                 } else {
+                    let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                    VoiceTypeLogger.log("localAI.server.poll.wait status=\(status)")
                     self.queue.asyncAfter(deadline: .now() + 1, execute: poll)
                 }
             }.resume()
@@ -197,12 +218,15 @@ final class LocalAIManager {
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: payload)
         } catch {
+            VoiceTypeLogger.log("localAI.transcribe.encode.failed error=\(error.localizedDescription)")
             completion(.failure(error))
             return
         }
 
+        VoiceTypeLogger.log("localAI.transcribe.http.request model=\(model.repoID) url=\(url.absoluteString)")
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error {
+                VoiceTypeLogger.log("localAI.transcribe.network.failed error=\(error.localizedDescription)")
                 completion(.failure(error))
                 return
             }
@@ -210,18 +234,24 @@ final class LocalAIManager {
                   (200..<300).contains(http.statusCode),
                   let data else {
                 let message = data.flatMap { String(data: $0, encoding: .utf8) } ?? "No response body"
+                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                VoiceTypeLogger.log("localAI.transcribe.http.failed status=\(status) body=\(message.prefix(500))")
                 completion(.failure(NSError.voiceType("Local ASR request failed: \(message)")))
                 return
             }
+            VoiceTypeLogger.log("localAI.transcribe.http.response status=\(http.statusCode) bytes=\(data.count)")
             do {
                 let object = try JSONSerialization.jsonObject(with: data)
                 guard let dictionary = object as? [String: Any],
                       let text = dictionary["text"] as? String else {
+                    VoiceTypeLogger.log("localAI.transcribe.extract.failed")
                     completion(.failure(NSError.voiceType("Local ASR response did not contain text")))
                     return
                 }
+                VoiceTypeLogger.log("localAI.transcribe.success chars=\(text.count) text=\(text)")
                 completion(.success(text))
             } catch {
+                VoiceTypeLogger.log("localAI.transcribe.decode.failed error=\(error.localizedDescription)")
                 completion(.failure(error))
             }
         }.resume()

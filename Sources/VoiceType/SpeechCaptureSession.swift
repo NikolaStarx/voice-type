@@ -4,6 +4,7 @@ import Foundation
 import Speech
 
 final class SpeechCaptureSession {
+    private let id = UUID().uuidString
     private let backend: SpeechBackend
     private let language: LanguageOption
     private let inputDeviceUID: String
@@ -16,6 +17,10 @@ final class SpeechCaptureSession {
     private var didStop = false
     private var didComplete = false
     private let audioURL: URL
+    private var tapFrames: AVAudioFramePosition = 0
+    private var tapStartedAt = Date()
+    private var lastAudioLogAt = Date.distantPast
+    private var rmsPeak: Float = 0
 
     init(backend: SpeechBackend, language: LanguageOption, inputDeviceUID: String) {
         self.backend = backend
@@ -31,7 +36,11 @@ final class SpeechCaptureSession {
         try configureInputDevice(on: inputNode)
         let format = inputNode.outputFormat(forBus: 0)
         audioFile = try AVAudioFile(forWriting: audioURL, settings: format.settings)
-        VoiceTypeLogger.log("capture.start backend=\(backend.rawValue) language=\(language.rawValue) inputDevice=\(inputDeviceUID.isEmpty ? "default" : inputDeviceUID) format=\(format)")
+        tapStartedAt = Date()
+        lastAudioLogAt = Date.distantPast
+        rmsPeak = 0
+        tapFrames = 0
+        VoiceTypeLogger.log("capture.start id=\(id) backend=\(backend.rawValue) language=\(language.rawValue) inputDevice=\(inputDeviceUID.isEmpty ? "default" : inputDeviceUID) format=\(format) audio=\(audioURL.path)")
 
         if backend == .appleSpeech {
             try startAppleRecognition(partialHandler: partialHandler)
@@ -42,10 +51,18 @@ final class SpeechCaptureSession {
             do {
                 try self.audioFile?.write(from: buffer)
             } catch {
-                NSLog("VoiceType audio write failed: \(error.localizedDescription)")
+                VoiceTypeLogger.log("capture.audioWrite.failed id=\(self.id) error=\(error.localizedDescription)")
             }
             self.recognitionRequest?.append(buffer)
             let rms = buffer.voiceTypeRMS()
+            self.tapFrames += AVAudioFramePosition(buffer.frameLength)
+            self.rmsPeak = max(self.rmsPeak, rms)
+            let now = Date()
+            if now.timeIntervalSince(self.lastAudioLogAt) >= 0.5 {
+                self.lastAudioLogAt = now
+                let elapsed = now.timeIntervalSince(self.tapStartedAt)
+                VoiceTypeLogger.log("capture.audio id=\(self.id) elapsed=\(String(format: "%.2f", elapsed)) frames=\(self.tapFrames) rms=\(String(format: "%.5f", rms)) peak=\(String(format: "%.5f", self.rmsPeak))")
+            }
             DispatchQueue.main.async {
                 rmsHandler(rms)
             }
@@ -53,7 +70,7 @@ final class SpeechCaptureSession {
 
         engine.prepare()
         try engine.start()
-        VoiceTypeLogger.log("capture.engine.started")
+        VoiceTypeLogger.log("capture.engine.started id=\(id)")
     }
 
     func stop(completion: @escaping (String, URL?) -> Void) {
@@ -63,9 +80,10 @@ final class SpeechCaptureSession {
         engine.stop()
         recognitionRequest?.endAudio()
         audioFile = nil
-        VoiceTypeLogger.log("capture.stop endAudio latestChars=\(latestText.count) audio=\(audioURL.path)")
+        VoiceTypeLogger.log("capture.stop id=\(id) endAudio latestChars=\(latestText.count) finalChars=\(finalText.count) frames=\(tapFrames) peak=\(String(format: "%.5f", rmsPeak)) audio=\(audioURL.path)")
 
         if backend == .appleSpeech {
+            VoiceTypeLogger.log("capture.stop.waitForAppleFinal id=\(id) delay=2.2")
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
                 self.completeOnce(completion: completion)
             }
@@ -81,7 +99,7 @@ final class SpeechCaptureSession {
         recognitionTask?.cancel()
         recognitionRequest?.endAudio()
         audioFile = nil
-        VoiceTypeLogger.log("capture.cancel")
+        VoiceTypeLogger.log("capture.cancel id=\(id)")
     }
 
     private func startAppleRecognition(partialHandler: @escaping (String) -> Void) throws {
@@ -96,7 +114,7 @@ final class SpeechCaptureSession {
         }
         recognitionRequest = request
 
-        VoiceTypeLogger.log("appleSpeech.start available=\(recognizer.isAvailable) locale=\(language.rawValue) auth=\(SFSpeechRecognizer.authorizationStatus().rawValue)")
+        VoiceTypeLogger.log("appleSpeech.start id=\(id) available=\(recognizer.isAvailable) locale=\(language.rawValue) auth=\(SFSpeechRecognizer.authorizationStatus().rawValue)")
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
             if let text = result?.bestTranscription.formattedString, !text.isEmpty {
@@ -104,21 +122,24 @@ final class SpeechCaptureSession {
                 if result?.isFinal == true {
                     self.finalText = text
                 }
-                VoiceTypeLogger.log("appleSpeech.result final=\(result?.isFinal == true) chars=\(text.count) text=\(text)")
+                VoiceTypeLogger.log("appleSpeech.result id=\(self.id) final=\(result?.isFinal == true) chars=\(text.count) text=\(text)")
                 DispatchQueue.main.async {
                     partialHandler(text)
                 }
             }
             if let error {
-                VoiceTypeLogger.log("appleSpeech.error \(error.localizedDescription)")
+                VoiceTypeLogger.log("appleSpeech.error id=\(self.id) \(error.localizedDescription)")
             }
         }
     }
 
     private func configureInputDevice(on inputNode: AVAudioInputNode) throws {
-        guard let selected = AudioDeviceManager.device(for: inputDeviceUID) else { return }
+        guard let selected = AudioDeviceManager.device(for: inputDeviceUID) else {
+            VoiceTypeLogger.log("capture.inputDevice.default id=\(id)")
+            return
+        }
         try inputNode.auAudioUnit.setDeviceID(selected.id)
-        VoiceTypeLogger.log("capture.inputDevice.bound name=\(selected.name) uid=\(selected.uid) id=\(selected.id)")
+        VoiceTypeLogger.log("capture.inputDevice.bound id=\(id) name=\(selected.name) uid=\(selected.uid) deviceID=\(selected.id)")
     }
 
     private func completeOnce(completion: @escaping (String, URL?) -> Void) {
@@ -127,7 +148,7 @@ final class SpeechCaptureSession {
         let text = finalText.isEmpty ? latestText : finalText
         recognitionTask?.cancel()
         recognitionTask = nil
-        VoiceTypeLogger.log("capture.complete chars=\(text.count) audioExists=\(FileManager.default.fileExists(atPath: audioURL.path))")
+        VoiceTypeLogger.log("capture.complete id=\(id) chars=\(text.count) audioExists=\(FileManager.default.fileExists(atPath: audioURL.path)) text=\(text)")
         completion(text, audioURL)
     }
 }
