@@ -4,7 +4,7 @@ BUILD_DIR := build
 APP_BUNDLE := $(BUILD_DIR)/$(APP_NAME).app
 EXECUTABLE := .build/$(CONFIG)/$(APP_NAME)
 RESOURCES := Resources
-INSTALL_DIR := $(HOME)/Applications
+INSTALL_DIR ?= /Applications
 SIGN_KEYCHAIN := $(HOME)/Library/Application Support/VoiceType/Signing/VoiceTypeBuild.keychain-db
 SIGN_IDENTITY ?= VoiceType Build Code Signing
 
