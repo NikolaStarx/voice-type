@@ -5,7 +5,8 @@ APP_BUNDLE := $(BUILD_DIR)/$(APP_NAME).app
 EXECUTABLE := .build/$(CONFIG)/$(APP_NAME)
 RESOURCES := Resources
 INSTALL_DIR := $(HOME)/Applications
-SIGN_IDENTITY ?= -
+LOCAL_SIGN_IDENTITY := $(shell security find-identity -v -p codesigning 2>/dev/null | awk -F\" '/VoiceType Local Code Signing/ { print $$2; exit }')
+SIGN_IDENTITY ?= $(if $(LOCAL_SIGN_IDENTITY),$(LOCAL_SIGN_IDENTITY),-)
 
 .PHONY: build run install clean icon
 
