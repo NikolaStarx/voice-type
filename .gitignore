@@ -12,3 +12,5 @@ Resources/AppIcon.iconset/
 # Local runtime state and logs.
 *.log
 *.tmp
+__pycache__/
+*.py[cod]
