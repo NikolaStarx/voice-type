@@ -100,6 +100,10 @@ final class MenuController: NSObject {
         submenu.addItem(copyDiagnostics)
         submenu.addItem(.separator())
 
+        let compact = NSMenuItem(title: "Compact Old Logs Now", action: #selector(compactLog), keyEquivalent: "")
+        compact.target = self
+        submenu.addItem(compact)
+
         let clear = NSMenuItem(title: "Clear Log", action: #selector(clearLog), keyEquivalent: "")
         clear.target = self
         submenu.addItem(clear)
@@ -388,6 +392,11 @@ final class MenuController: NSObject {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(VoiceTypeLogger.diagnosticsSnapshot(), forType: .string)
+    }
+
+    @objc private func compactLog() {
+        VoiceTypeLogger.log("menu.compactLog")
+        VoiceTypeLogger.compactOldLogsNow()
     }
 
     @objc private func clearLog() {

@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             VoiceTypeLogger.error("uncaughtException name=\(exception.name.rawValue) reason=\(exception.reason ?? "nil") callStack=\(exception.callStackSymbols.joined(separator: " | "))")
         }
         VoiceTypeLogger.log("app.launch pid=\(ProcessInfo.processInfo.processIdentifier) bundle=\(Bundle.main.bundlePath) executable=\(Bundle.main.executableURL?.path ?? "nil") version=\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown")")
+        VoiceTypeLogger.compactOldLogsIfNeeded()
         PermissionsManager.shared.requestInitialPermissionsOnce()
 
         floatingPanel = FloatingPanelController()
@@ -57,6 +58,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func pipelineStatusChanged(_ notification: Notification) {
         guard let status = notification.object as? VoiceTypePipelineStatus else { return }
         VoiceTypeLogger.log("app.pipelineStatus \(status.title)")
+        if status == .done {
+            floatingPanel.hide()
+            return
+        }
         floatingPanel.show(text: status.title)
         if status.shouldAutoHide {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
