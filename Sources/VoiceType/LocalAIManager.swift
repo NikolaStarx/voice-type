@@ -249,6 +249,11 @@ final class LocalAIManager {
                     completion(.failure(NSError.voiceType("Local ASR response did not contain text")))
                     return
                 }
+                if let audio = dictionary["audio"] as? [String: Any],
+                   let audioData = try? JSONSerialization.data(withJSONObject: audio, options: [.sortedKeys]),
+                   let audioJSON = String(data: audioData, encoding: .utf8) {
+                    VoiceTypeLogger.log("localAI.transcribe.audio \(audioJSON)")
+                }
                 VoiceTypeLogger.log("localAI.transcribe.success chars=\(text.count) text=\(text)")
                 completion(.success(text))
             } catch {

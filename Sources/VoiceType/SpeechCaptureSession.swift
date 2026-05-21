@@ -13,7 +13,6 @@ final class SpeechCaptureSession: NSObject {
     private let captureQueue = DispatchQueue(label: "VoiceType.CaptureSession.Audio")
     private let dataOutput = AVCaptureAudioDataOutput()
     private let fileOutput = AVCaptureAudioFileOutput()
-    private let minimumUsablePeak: Float = 0.0035
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private var latestText = ""
@@ -28,7 +27,6 @@ final class SpeechCaptureSession: NSObject {
     private var didLogSampleFormat = false
     private var stopCompletion: ((String, URL?) -> Void)?
     private var rmsHandler: ((Float) -> Void)?
-    private var discardAudioAfterStop = false
 
     var debugID: String { id }
 
@@ -48,7 +46,6 @@ final class SpeechCaptureSession: NSObject {
         rmsPeak = 0
         tapFrames = 0
         didLogSampleFormat = false
-        discardAudioAfterStop = false
 
         let device = try configureCaptureSession()
         VoiceTypeLogger.log("capture.start id=\(id) backend=\(backend.rawValue) language=\(language.rawValue) inputDevice=\(inputDeviceUID.isEmpty ? "default" : inputDeviceUID) captureDevice=\(device.localizedName)|\(device.uniqueID) audio=\(audioURL.path)")
@@ -69,10 +66,6 @@ final class SpeechCaptureSession: NSObject {
         guard !didStop else { return }
         didStop = true
         recognitionRequest?.endAudio()
-        discardAudioAfterStop = backend != .appleSpeech && tapFrames > 0 && rmsPeak < minimumUsablePeak
-        if discardAudioAfterStop {
-            VoiceTypeLogger.warning("capture.silenceDetected id=\(id) peak=\(String(format: "%.5f", rmsPeak)) threshold=\(String(format: "%.5f", minimumUsablePeak)) frames=\(tapFrames)")
-        }
         VoiceTypeLogger.log("capture.stop id=\(id) endAudio latestChars=\(latestText.count) finalChars=\(finalText.count) frames=\(tapFrames) peak=\(String(format: "%.5f", rmsPeak)) audio=\(audioURL.path)")
 
         stopCompletion = completion
@@ -198,12 +191,6 @@ final class SpeechCaptureSession: NSObject {
 
         guard let completion = stopCompletion else { return }
         stopCompletion = nil
-        if discardAudioAfterStop {
-            DispatchQueue.main.async {
-                completion("", nil)
-            }
-            return
-        }
         if backend == .appleSpeech {
             VoiceTypeLogger.log("capture.stop.waitForAppleFinal id=\(id) delay=2.2")
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {

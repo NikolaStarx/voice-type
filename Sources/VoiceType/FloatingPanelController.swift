@@ -190,7 +190,7 @@ final class WaveformView: NSView {
     override var isFlipped: Bool { true }
 
     func setRMS(_ rms: Float) {
-        let clamped = max(0, min(CGFloat(rms) * 3.8, 1))
+        let clamped = max(0, min(sqrt(CGFloat(rms) * 12), 1))
         if clamped > envelope {
             envelope += (clamped - envelope) * 0.40
         } else {

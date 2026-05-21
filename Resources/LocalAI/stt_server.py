@@ -19,29 +19,70 @@ class ModelCache:
             return str(local)
         return repo_id
 
-    def transcribe(self, repo_id: str, audio_path: str, language: str) -> str:
+    def transcribe(self, repo_id: str, audio_path: str, language: str):
         from mlx_audio.stt import load
 
         model_path = self.model_path(repo_id)
         if model_path not in self.loaded:
             self.loaded[model_path] = load(model_path)
         model = self.loaded[model_path]
+        audio_stats = inspect_audio(Path(audio_path))
         kwargs = {}
         mapped_language = language_name(language)
         if mapped_language:
             kwargs["language"] = mapped_language
         result = model.generate(audio_path, **kwargs)
         if isinstance(result, str):
-            return result.strip()
+            return result.strip(), audio_stats
         if isinstance(result, dict):
             for key in ("text", "transcription", "result"):
                 value = result.get(key)
                 if isinstance(value, str):
-                    return value.strip()
+                    return value.strip(), audio_stats
         text = getattr(result, "text", None)
         if isinstance(text, str):
-            return text.strip()
-        return str(result).strip()
+            return text.strip(), audio_stats
+        return str(result).strip(), audio_stats
+
+
+def inspect_audio(audio_path: Path):
+    try:
+        import numpy as np
+        import soundfile as sf
+
+        data, sample_rate = sf.read(str(audio_path), dtype="float32", always_2d=True)
+        frame_count = int(data.shape[0])
+        if frame_count == 0:
+            stats = {
+                "input_path": str(audio_path),
+                "sample_rate": int(sample_rate),
+                "frames": 0,
+                "raw_peak": 0.0,
+                "raw_rms": 0.0,
+            }
+            print("audio_inspect " + json.dumps(stats, ensure_ascii=False, sort_keys=True), flush=True)
+            return stats
+
+        mono = data.mean(axis=1)
+        raw_peak = float(np.max(np.abs(mono)))
+        raw_rms = float(np.sqrt(np.mean(np.square(mono, dtype=np.float64))))
+
+        stats = {
+            "input_path": str(audio_path),
+            "sample_rate": int(sample_rate),
+            "frames": frame_count,
+            "raw_peak": raw_peak,
+            "raw_rms": raw_rms,
+        }
+        print("audio_inspect " + json.dumps(stats, ensure_ascii=False, sort_keys=True), flush=True)
+        return stats
+    except Exception as exc:
+        stats = {
+            "input_path": str(audio_path),
+            "error": str(exc),
+        }
+        print("audio_inspect_failed " + json.dumps(stats, ensure_ascii=False, sort_keys=True), flush=True)
+        return stats
 
 
 def language_name(code: str) -> str:
@@ -78,8 +119,8 @@ def make_handler(cache: ModelCache):
                 if not audio_path or not repo_id:
                     self.send_error(400, "audio_path and model are required")
                     return
-                text = cache.transcribe(repo_id, audio_path, language)
-                self.respond_json({"text": text})
+                text, audio_stats = cache.transcribe(repo_id, audio_path, language)
+                self.respond_json({"text": text, "audio": audio_stats})
             except Exception as exc:
                 traceback.print_exc()
                 self.respond_json({"error": str(exc)}, status=500)
