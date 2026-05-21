@@ -4,11 +4,20 @@ import Carbon
 import CoreGraphics
 
 final class TextInjector {
+    private let pasteboardRestoreDelay: TimeInterval = 1.05
+
     func inject(text: String, completion: @escaping (Bool) -> Void) {
         let frontmost = NSWorkspace.shared.frontmostApplication
         let axTrusted = AXIsProcessTrusted()
         let postEvents = CGPreflightPostEventAccess()
         VoiceTypeLogger.log("textInjector.inject chars=\(text.count) axTrusted=\(axTrusted) postEvents=\(postEvents) frontmost=\(frontmost?.localizedName ?? "nil") bundle=\(frontmost?.bundleIdentifier ?? "nil") text=\(text)")
+
+        if postEvents {
+            VoiceTypeLogger.log("textInjector.mode=pasteShortcut")
+            pasteWithShortcut(text: text, completion: completion)
+            return
+        }
+
         if AccessibilityTextInjector.inject(text: text) {
             VoiceTypeLogger.log("textInjector.ax.success")
             completion(true)
@@ -16,19 +25,18 @@ final class TextInjector {
         }
         VoiceTypeLogger.warning("textInjector.ax.unavailableOrFailed")
 
-        guard axTrusted || postEvents else {
-            VoiceTypeLogger.error("textInjector.eventInjectionAccess.missing axTrusted=\(axTrusted) postEvents=\(postEvents)")
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
-            VoiceTypeLogger.warning("textInjector.permissionFallback.copiedToClipboard chars=\(text.count)")
-            NotificationCenter.default.post(
-                name: .voiceTypeInjectionFailed,
-                object: "Text injection needs Accessibility or Paste Events permission. Text copied to clipboard."
-            )
-            completion(false)
-            return
-        }
+        VoiceTypeLogger.error("textInjector.eventInjectionAccess.missing axTrusted=\(axTrusted) postEvents=\(postEvents)")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        VoiceTypeLogger.warning("textInjector.permissionFallback.copiedToClipboard chars=\(text.count)")
+        NotificationCenter.default.post(
+            name: .voiceTypeInjectionFailed,
+            object: "Text injection needs Accessibility or Paste Events permission. Text copied to clipboard."
+        )
+        completion(false)
+    }
 
+    private func pasteWithShortcut(text: String, completion: @escaping (Bool) -> Void) {
         let pasteboard = NSPasteboard.general
         let snapshot = PasteboardSnapshot.capture(from: pasteboard)
         let originalSource = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue()
@@ -47,8 +55,18 @@ final class TextInjector {
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
                 VoiceTypeLogger.log("textInjector.postPasteShortcut")
-                Self.postPasteShortcut()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.38) {
+                guard Self.postPasteShortcut() else {
+                    VoiceTypeLogger.error("textInjector.postPasteShortcut.failed")
+                    snapshot.restore(to: pasteboard)
+                    if shouldSwitch, let originalSource {
+                        VoiceTypeLogger.log("textInjector.restoreInputSource")
+                        TISSelectInputSource(originalSource)
+                    }
+                    completion(false)
+                    return
+                }
+                VoiceTypeLogger.log("textInjector.restoreScheduled delay=\(String(format: "%.2f", self.pasteboardRestoreDelay))")
+                DispatchQueue.main.asyncAfter(deadline: .now() + self.pasteboardRestoreDelay) {
                     snapshot.restore(to: pasteboard)
                     if shouldSwitch, let originalSource {
                         VoiceTypeLogger.log("textInjector.restoreInputSource")
@@ -61,15 +79,17 @@ final class TextInjector {
         }
     }
 
-    private static func postPasteShortcut() {
+    private static func postPasteShortcut() -> Bool {
         let source = CGEventSource(stateID: .hidSystemState)
         let keyCode: CGKeyCode = 9
         let down = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true)
         let up = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
-        down?.flags = .maskCommand
-        up?.flags = .maskCommand
-        down?.post(tap: .cghidEventTap)
-        up?.post(tap: .cghidEventTap)
+        guard let down, let up else { return false }
+        down.flags = .maskCommand
+        up.flags = .maskCommand
+        down.post(tap: .cghidEventTap)
+        up.post(tap: .cghidEventTap)
+        return true
     }
 }
 

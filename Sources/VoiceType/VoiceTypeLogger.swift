@@ -2,7 +2,11 @@ import Foundation
 
 enum VoiceTypeLogger {
     private static let queue = DispatchQueue(label: "VoiceType.Logger")
-    private static let formatter = ISO8601DateFormatter()
+    private static let formatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 
     static var logFileURL: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
