@@ -276,9 +276,42 @@ enum FnEventTapStatus: Equatable {
     }
 }
 
+enum VoiceTypePipelineStatus: Equatable {
+    case queued
+    case transcribing(String)
+    case refining
+    case inserting
+    case done
+    case failed(String)
+
+    var title: String {
+        switch self {
+        case .queued: return "Queued"
+        case .transcribing(let message): return message
+        case .refining: return "Refining..."
+        case .inserting: return "Inserting..."
+        case .done: return "Done"
+        case .failed(let message): return message
+        }
+    }
+
+    var shouldAutoHide: Bool {
+        switch self {
+        case .done: return true
+        case .queued, .transcribing, .refining, .inserting, .failed: return false
+        }
+    }
+
+    var isFailure: Bool {
+        if case .failed = self { return true }
+        return false
+    }
+}
+
 extension Notification.Name {
     static let voiceTypeSettingsChanged = Notification.Name("VoiceTypeSettingsChanged")
     static let voiceTypeLocalAIStatusChanged = Notification.Name("VoiceTypeLocalAIStatusChanged")
     static let voiceTypeFnEventTapStatusChanged = Notification.Name("VoiceTypeFnEventTapStatusChanged")
     static let voiceTypeInjectionFailed = Notification.Name("VoiceTypeInjectionFailed")
+    static let voiceTypePipelineStatusChanged = Notification.Name("VoiceTypePipelineStatusChanged")
 }

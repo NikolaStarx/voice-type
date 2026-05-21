@@ -100,11 +100,8 @@ final class VoiceCoordinator {
         }
 
         floatingPanel.updateStatus("Queued")
+        NotificationCenter.default.post(name: .voiceTypePipelineStatusChanged, object: VoiceTypePipelineStatus.queued)
         VoiceTypeLogger.log("coordinator.queued session=\(releasedSessionID?.uuidString ?? "nil") backend=\(releasedBackend.rawValue)")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
-            guard self?.activeSessionID == nil else { return }
-            self?.floatingPanel.hide()
-        }
 
         session.stop { [weak self] appleText, audioURL in
             guard let self else { return }

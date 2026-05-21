@@ -23,6 +23,7 @@ final class DictationPipeline {
     func submit(appleText: String, audioURL: URL?, backend: SpeechBackend, language: LanguageOption) {
         let sequence = reserveSequence()
         VoiceTypeLogger.log("pipeline.submit sequence=\(sequence) backend=\(backend.rawValue) appleChars=\(appleText.count) audio=\(audioURL?.path ?? "nil")")
+        postStatus(.queued)
         let job = DictationJob(
             sequence: sequence,
             backend: backend,
@@ -70,34 +71,43 @@ final class DictationPipeline {
         VoiceTypeLogger.log("pipeline.resolveSTT sequence=\(job.sequence) backend=\(job.backend.rawValue)")
         switch job.backend {
         case .appleSpeech:
+            postStatus(.transcribing("Finalizing transcript..."))
             handleTranscript(job.appleText, for: job)
         case .localQwen06, .localQwen17:
             guard let model = job.backend.localModel, let audioURL = job.audioURL else {
+                postStatus(.failed("Local STT missing audio"))
                 injectionScheduler.finishJob(sequence: job.sequence)
                 return
             }
+            postStatus(.transcribing("Preparing \(model.title)..."))
             localAI.transcribe(audioURL: audioURL, model: model, language: job.language) { [weak self] result in
                 switch result {
                 case .success(let text):
                     VoiceTypeLogger.log("pipeline.localSTT.success sequence=\(job.sequence) chars=\(text.count)")
+                    self?.postStatus(.transcribing("Local transcription ready"))
                     self?.handleTranscript(text, for: job)
                 case .failure:
                     VoiceTypeLogger.error("pipeline.localSTT.failure sequence=\(job.sequence)")
+                    self?.postStatus(.failed("Local STT failed. Open Diagnostics."))
                     self?.injectionScheduler.finishJob(sequence: job.sequence)
                 }
             }
         case .cloud:
             guard let audioURL = job.audioURL else {
+                postStatus(.failed("Cloud STT missing audio"))
                 injectionScheduler.finishJob(sequence: job.sequence)
                 return
             }
+            postStatus(.transcribing("Uploading audio..."))
             cloudSTT.transcribe(audioURL: audioURL, language: job.language, settings: job.cloudSettings) { [weak self] result in
                 switch result {
                 case .success(let text):
                     VoiceTypeLogger.log("pipeline.cloudSTT.success sequence=\(job.sequence) chars=\(text.count)")
+                    self?.postStatus(.transcribing("Cloud transcription ready"))
                     self?.handleTranscript(text, for: job)
                 case .failure:
                     VoiceTypeLogger.error("pipeline.cloudSTT.failure sequence=\(job.sequence)")
+                    self?.postStatus(.failed("Cloud STT failed. Open Diagnostics."))
                     self?.injectionScheduler.finishJob(sequence: job.sequence)
                 }
             }
@@ -108,6 +118,7 @@ final class DictationPipeline {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             VoiceTypeLogger.warning("pipeline.emptyTranscript sequence=\(job.sequence)")
+            postStatus(.failed("No transcript captured"))
             injectionScheduler.finishJob(sequence: job.sequence)
             return
         }
@@ -115,11 +126,13 @@ final class DictationPipeline {
         let segments = segments(for: trimmed, job: job)
         VoiceTypeLogger.log("pipeline.handleTranscript sequence=\(job.sequence) chars=\(trimmed.count) segments=\(segments.count) text=\(trimmed)")
         guard !segments.isEmpty else {
+            postStatus(.failed("No transcript segments"))
             injectionScheduler.finishJob(sequence: job.sequence)
             return
         }
 
         guard shouldRefine(job.llmSettings) else {
+            postStatus(.inserting)
             for (index, segment) in segments.enumerated() {
                 injectionScheduler.enqueue(
                     text: segment.text + segment.suffix,
@@ -131,6 +144,7 @@ final class DictationPipeline {
             return
         }
 
+        postStatus(.refining)
         refineSegments(segments, for: job)
     }
 
@@ -157,6 +171,7 @@ final class DictationPipeline {
                             guard !completed.contains(index) else { return }
                             completed.insert(index)
                             VoiceTypeLogger.log("pipeline.refine.complete sequence=\(job.sequence) segment=\(index) chars=\(text.count)")
+                            self.postStatus(.inserting)
                             self.injectionScheduler.enqueue(
                                 text: text + segment.suffix,
                                 sequence: job.sequence,
@@ -195,6 +210,13 @@ final class DictationPipeline {
         }
 
         startMore()
+    }
+
+    private func postStatus(_ status: VoiceTypePipelineStatus) {
+        VoiceTypeLogger.log("pipeline.status \(status.title)")
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .voiceTypePipelineStatusChanged, object: status)
+        }
     }
 
     private func shouldRefine(_ settings: LLMSettings) -> Bool {
@@ -433,9 +455,28 @@ private final class InjectionScheduler {
                         self.expectedSequence += 1
                         self.expectedSegmentIndex = 0
                     }
+                    if success && self.isIdle {
+                        self.postStatus(.done)
+                    } else if !success {
+                        self.postStatus(.failed("Text injection failed"))
+                    }
                     self.drain()
                 }
             }
+        }
+    }
+
+    private var isIdle: Bool {
+        !recordingActive &&
+        !injecting &&
+        segmentCounts.isEmpty &&
+        pendingSegments.isEmpty
+    }
+
+    private func postStatus(_ status: VoiceTypePipelineStatus) {
+        VoiceTypeLogger.log("injectorScheduler.status \(status.title)")
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .voiceTypePipelineStatusChanged, object: status)
         }
     }
 }

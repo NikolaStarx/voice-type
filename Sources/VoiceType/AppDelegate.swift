@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menuController = MenuController(coordinator: coordinator, localAI: localAI, fnEventTap: eventTap)
         eventTap.start()
         NotificationCenter.default.addObserver(self, selector: #selector(injectionFailed(_:)), name: .voiceTypeInjectionFailed, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(pipelineStatusChanged(_:)), name: .voiceTypePipelineStatusChanged, object: nil)
         DistributedNotificationCenter.default().addObserver(
             self,
             selector: #selector(runDiagnosticPaste(_:)),
@@ -50,6 +51,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         floatingPanel.show(text: message)
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { [weak self] in
             self?.floatingPanel.hide()
+        }
+    }
+
+    @objc private func pipelineStatusChanged(_ notification: Notification) {
+        guard let status = notification.object as? VoiceTypePipelineStatus else { return }
+        VoiceTypeLogger.log("app.pipelineStatus \(status.title)")
+        floatingPanel.show(text: status.title)
+        if status.shouldAutoHide {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+                self?.floatingPanel.hide()
+            }
+        } else if status.isFailure {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) { [weak self] in
+                self?.floatingPanel.hide()
+            }
         }
     }
 

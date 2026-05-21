@@ -23,7 +23,7 @@ final class TextInjector {
                 name: .voiceTypeInjectionFailed,
                 object: "Text injection needs Accessibility or Paste Events permission. Text copied to clipboard."
             )
-            completion(true)
+            completion(false)
             return
         }
 

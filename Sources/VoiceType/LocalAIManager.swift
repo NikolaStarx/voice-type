@@ -276,6 +276,8 @@ final class LocalAIManager {
 
     private func processEnvironment() -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
+        let pathPrefix = "\(NSHomeDirectory())/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        environment["PATH"] = "\(pathPrefix):\(environment["PATH"] ?? "")"
         environment["VOICE_TYPE_LOCALAI_HOME"] = supportDirectory.path
         environment["HF_HOME"] = supportDirectory.appendingPathComponent("hf-home").path
         environment["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
