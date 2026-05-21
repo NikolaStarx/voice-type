@@ -73,7 +73,7 @@ final class VoiceCoordinator {
             activeSessionID = nil
             pauseBatcher = nil
             pipeline.setRecordingActive(false)
-            VoiceTypeLogger.log("coordinator.beginHold.failed \(error.localizedDescription)")
+            VoiceTypeLogger.error("coordinator.beginHold.failed", error: error)
             showTemporaryError("Recording failed: \(error.localizedDescription)")
         }
     }

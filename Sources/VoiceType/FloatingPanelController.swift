@@ -34,6 +34,7 @@ final class FloatingPanelController {
     }
 
     func show(text: String = "Listening...") {
+        VoiceTypeLogger.log("hud.show text=\(text)")
         update(text: text)
         update(level: 0.04)
         positionPanel()
@@ -60,6 +61,7 @@ final class FloatingPanelController {
     }
 
     func updateStatus(_ status: String) {
+        VoiceTypeLogger.log("hud.status text=\(status)")
         update(text: status)
     }
 
@@ -69,6 +71,7 @@ final class FloatingPanelController {
 
     func hide() {
         guard isVisible else { return }
+        VoiceTypeLogger.log("hud.hide")
         isVisible = false
         runExitAnimation()
     }

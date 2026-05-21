@@ -8,6 +8,7 @@ final class MenuController: NSObject {
     private let statusItem: NSStatusItem
     private var llmWindow: LLMSettingsWindowController?
     private var sttWindow: STTSettingsWindowController?
+    private var diagnosticsWindow: DiagnosticsWindowController?
     private var localStatus: LocalAIStatus = .idle
     private var fnStatus: FnEventTapStatus = .idle
 
@@ -84,6 +85,16 @@ final class MenuController: NSObject {
         let paste = NSMenuItem(title: "Paste Test Text", action: #selector(pasteTestText), keyEquivalent: "")
         paste.target = self
         submenu.addItem(paste)
+        submenu.addItem(.separator())
+
+        let showDiagnostics = NSMenuItem(title: "Show Recent Diagnostics...", action: #selector(showDiagnostics), keyEquivalent: "")
+        showDiagnostics.target = self
+        submenu.addItem(showDiagnostics)
+
+        let copyDiagnostics = NSMenuItem(title: "Copy Diagnostics to Clipboard", action: #selector(copyDiagnostics), keyEquivalent: "")
+        copyDiagnostics.target = self
+        submenu.addItem(copyDiagnostics)
+        submenu.addItem(.separator())
 
         let clear = NSMenuItem(title: "Clear Log", action: #selector(clearLog), keyEquivalent: "")
         clear.target = self
@@ -348,6 +359,22 @@ final class MenuController: NSObject {
     @objc private func pasteTestText() {
         VoiceTypeLogger.log("menu.pasteTestText")
         coordinator.injectDiagnosticText("VoiceType paste test 中文 English 123")
+    }
+
+    @objc private func showDiagnostics() {
+        VoiceTypeLogger.log("menu.showDiagnostics")
+        if diagnosticsWindow == nil {
+            diagnosticsWindow = DiagnosticsWindowController()
+        }
+        diagnosticsWindow?.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func copyDiagnostics() {
+        VoiceTypeLogger.log("menu.copyDiagnostics")
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(VoiceTypeLogger.diagnosticsSnapshot(), forType: .string)
     }
 
     @objc private func clearLog() {

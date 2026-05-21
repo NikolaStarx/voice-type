@@ -333,6 +333,109 @@ final class STTSettingsWindowController: NSWindowController {
     }
 }
 
+final class DiagnosticsWindowController: NSWindowController {
+    private let textView = NSTextView()
+    private let statusLabel = NSTextField(labelWithString: "")
+
+    init() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 860, height: 620),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "VoiceType Recent Diagnostics"
+        window.center()
+        super.init(window: window)
+        configure()
+        refresh()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func showWindow(_ sender: Any?) {
+        refresh()
+        super.showWindow(sender)
+    }
+
+    private func configure() {
+        guard let contentView = window?.contentView else { return }
+
+        let root = NSStackView()
+        root.orientation = .vertical
+        root.spacing = 12
+        root.edgeInsets = NSEdgeInsets(top: 18, left: 18, bottom: 18, right: 18)
+        root.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(root)
+
+        textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.textContainerInset = NSSize(width: 10, height: 10)
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = true
+        scroll.autohidesScrollers = false
+        scroll.borderType = .bezelBorder
+        scroll.documentView = textView
+        root.addArrangedSubview(scroll)
+
+        let refreshButton = NSButton(title: "Refresh", target: self, action: #selector(refreshClicked))
+        let copyButton = NSButton(title: "Copy Diagnostics", target: self, action: #selector(copyDiagnostics))
+        let revealButton = NSButton(title: "Reveal Log", target: self, action: #selector(revealLog))
+        statusLabel.textColor = .secondaryLabelColor
+        statusLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let footer = NSStackView(views: [statusLabel, refreshButton, copyButton, revealButton])
+        footer.orientation = .horizontal
+        footer.alignment = .centerY
+        footer.spacing = 10
+        root.addArrangedSubview(footer)
+
+        NSLayoutConstraint.activate([
+            root.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            root.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            root.topAnchor.constraint(equalTo: contentView.topAnchor),
+            root.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 420)
+        ])
+    }
+
+    private func refresh() {
+        let snapshot = VoiceTypeLogger.diagnosticsSnapshot()
+        textView.string = snapshot
+        statusLabel.stringValue = "Updated \(DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium))"
+        if !snapshot.isEmpty {
+            textView.scrollToEndOfDocument(nil)
+        }
+    }
+
+    @objc private func refreshClicked() {
+        VoiceTypeLogger.log("diagnosticsWindow.refresh")
+        refresh()
+    }
+
+    @objc private func copyDiagnostics() {
+        VoiceTypeLogger.log("diagnosticsWindow.copyDiagnostics")
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(VoiceTypeLogger.diagnosticsSnapshot(), forType: .string)
+        statusLabel.stringValue = "Copied diagnostics"
+        refresh()
+    }
+
+    @objc private func revealLog() {
+        VoiceTypeLogger.log("diagnosticsWindow.revealLog")
+        NSWorkspace.shared.activateFileViewerSelecting([VoiceTypeLogger.logFileURL])
+    }
+}
+
 private func label(_ text: String) -> NSTextField {
     let label = NSTextField(labelWithString: text)
     label.font = .systemFont(ofSize: 13, weight: .medium)

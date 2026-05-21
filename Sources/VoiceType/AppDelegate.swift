@@ -10,6 +10,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var localAI: LocalAIManager!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSSetUncaughtExceptionHandler { exception in
+            VoiceTypeLogger.error("uncaughtException name=\(exception.name.rawValue) reason=\(exception.reason ?? "nil") callStack=\(exception.callStackSymbols.joined(separator: " | "))")
+        }
         VoiceTypeLogger.log("app.launch pid=\(ProcessInfo.processInfo.processIdentifier) bundle=\(Bundle.main.bundlePath) executable=\(Bundle.main.executableURL?.path ?? "nil") version=\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown")")
         PermissionsManager.shared.requestInitialPermissionsOnce()
 
@@ -36,12 +39,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        VoiceTypeLogger.log("app.willTerminate")
         eventTap?.stop()
         localAI?.shutdown()
     }
 
     @objc private func injectionFailed(_ notification: Notification) {
         let message = notification.object as? String ?? "Text injection failed"
+        VoiceTypeLogger.error("app.injectionFailed message=\(message)")
         floatingPanel.show(text: message)
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { [weak self] in
             self?.floatingPanel.hide()

@@ -51,7 +51,7 @@ final class SpeechCaptureSession {
             do {
                 try self.audioFile?.write(from: buffer)
             } catch {
-                VoiceTypeLogger.log("capture.audioWrite.failed id=\(self.id) error=\(error.localizedDescription)")
+                VoiceTypeLogger.error("capture.audioWrite.failed id=\(self.id)", error: error)
             }
             self.recognitionRequest?.append(buffer)
             let rms = buffer.voiceTypeRMS()
@@ -128,7 +128,7 @@ final class SpeechCaptureSession {
                 }
             }
             if let error {
-                VoiceTypeLogger.log("appleSpeech.error id=\(self.id) \(error.localizedDescription)")
+                VoiceTypeLogger.error("appleSpeech.error id=\(self.id)", error: error)
             }
         }
     }

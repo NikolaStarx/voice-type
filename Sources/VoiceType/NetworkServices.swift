@@ -4,7 +4,7 @@ final class LLMRefiner {
     @discardableResult
     func refine(text: String, settings: LLMSettings, completion: @escaping (Result<String, Error>) -> Void) -> URLSessionDataTask? {
         guard let url = endpoint(base: settings.apiBaseURL, path: "chat/completions") else {
-            VoiceTypeLogger.log("llm.refine.invalidBase base=\(settings.apiBaseURL)")
+            VoiceTypeLogger.error("llm.refine.invalidBase base=\(settings.apiBaseURL)")
             completion(.failure(NSError.voiceType("Invalid LLM API Base URL")))
             return nil
         }
@@ -31,7 +31,7 @@ final class LLMRefiner {
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
         } catch {
-            VoiceTypeLogger.log("llm.refine.encode.failed error=\(error.localizedDescription)")
+            VoiceTypeLogger.error("llm.refine.encode.failed", error: error)
             completion(.failure(error))
             return nil
         }
@@ -39,7 +39,7 @@ final class LLMRefiner {
         VoiceTypeLogger.log("llm.refine.request url=\(url.absoluteString) model=\(settings.model) profile=\(profile.name) effort=\(profile.reasoningEffort.rawValue) chars=\(text.count)")
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
             if let error {
-                VoiceTypeLogger.log("llm.refine.network.failed error=\(error.localizedDescription)")
+                VoiceTypeLogger.error("llm.refine.network.failed", error: error)
                 completion(.failure(error))
                 return
             }
@@ -48,7 +48,7 @@ final class LLMRefiner {
                   let data else {
                 let message = data.flatMap { String(data: $0, encoding: .utf8) } ?? "No response body"
                 let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-                VoiceTypeLogger.log("llm.refine.http.failed status=\(status) body=\(message.prefix(500))")
+                VoiceTypeLogger.error("llm.refine.http.failed status=\(status) body=\(message.prefix(500))")
                 completion(.failure(NSError.voiceType("LLM request failed: \(message)")))
                 return
             }
@@ -60,11 +60,11 @@ final class LLMRefiner {
                     VoiceTypeLogger.log("llm.refine.extract.success chars=\(text.count) text=\(text)")
                     completion(.success(text.trimmingCharacters(in: .whitespacesAndNewlines)))
                 } else {
-                    VoiceTypeLogger.log("llm.refine.extract.failed")
+                    VoiceTypeLogger.error("llm.refine.extract.failed")
                     completion(.failure(NSError.voiceType("LLM response did not contain text")))
                 }
             } catch {
-                VoiceTypeLogger.log("llm.refine.decode.failed error=\(error.localizedDescription)")
+                VoiceTypeLogger.error("llm.refine.decode.failed", error: error)
                 completion(.failure(error))
             }
         }
@@ -103,12 +103,12 @@ final class LLMRefiner {
 final class CloudSTTTranscriber {
     func transcribe(audioURL: URL, language: LanguageOption, settings: CloudSTTSettings, completion: @escaping (Result<String, Error>) -> Void) {
         guard settings.isConfigured else {
-            VoiceTypeLogger.log("cloudSTT.notConfigured")
+            VoiceTypeLogger.error("cloudSTT.notConfigured")
             completion(.failure(NSError.voiceType("Cloud STT is not configured")))
             return
         }
         guard let url = endpoint(base: settings.apiBaseURL, path: "audio/transcriptions") else {
-            VoiceTypeLogger.log("cloudSTT.invalidBase base=\(settings.apiBaseURL)")
+            VoiceTypeLogger.error("cloudSTT.invalidBase base=\(settings.apiBaseURL)")
             completion(.failure(NSError.voiceType("Invalid Cloud STT API Base URL")))
             return
         }
@@ -134,7 +134,7 @@ final class CloudSTTTranscriber {
             VoiceTypeLogger.log("cloudSTT.request url=\(url.absoluteString) model=\(settings.model) language=\(language.rawValue) audioBytes=\(audioData.count)")
             URLSession.shared.dataTask(with: request) { data, response, error in
                 if let error {
-                    VoiceTypeLogger.log("cloudSTT.network.failed error=\(error.localizedDescription)")
+                    VoiceTypeLogger.error("cloudSTT.network.failed", error: error)
                     completion(.failure(error))
                     return
                 }
@@ -143,7 +143,7 @@ final class CloudSTTTranscriber {
                       let data else {
                     let message = data.flatMap { String(data: $0, encoding: .utf8) } ?? "No response body"
                     let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-                    VoiceTypeLogger.log("cloudSTT.http.failed status=\(status) body=\(message.prefix(500))")
+                    VoiceTypeLogger.error("cloudSTT.http.failed status=\(status) body=\(message.prefix(500))")
                     completion(.failure(NSError.voiceType("Cloud STT request failed: \(message)")))
                     return
                 }
@@ -159,7 +159,7 @@ final class CloudSTTTranscriber {
                         VoiceTypeLogger.log("cloudSTT.extract.transcript chars=\(text.count) text=\(text)")
                         completion(.success(text))
                     } else {
-                        VoiceTypeLogger.log("cloudSTT.extract.failed")
+                        VoiceTypeLogger.error("cloudSTT.extract.failed")
                         completion(.failure(NSError.voiceType("Cloud STT response did not contain text")))
                     }
                 } catch {
@@ -167,13 +167,13 @@ final class CloudSTTTranscriber {
                         VoiceTypeLogger.log("cloudSTT.decode.rawText chars=\(text.count) text=\(text)")
                         completion(.success(text))
                     } else {
-                        VoiceTypeLogger.log("cloudSTT.decode.failed error=\(error.localizedDescription)")
+                        VoiceTypeLogger.error("cloudSTT.decode.failed", error: error)
                         completion(.failure(error))
                     }
                 }
             }.resume()
         } catch {
-            VoiceTypeLogger.log("cloudSTT.audioRead.failed path=\(audioURL.path) error=\(error.localizedDescription)")
+            VoiceTypeLogger.error("cloudSTT.audioRead.failed path=\(audioURL.path)", error: error)
             completion(.failure(error))
         }
     }

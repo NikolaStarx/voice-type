@@ -82,7 +82,7 @@ final class DictationPipeline {
                     VoiceTypeLogger.log("pipeline.localSTT.success sequence=\(job.sequence) chars=\(text.count)")
                     self?.handleTranscript(text, for: job)
                 case .failure:
-                    VoiceTypeLogger.log("pipeline.localSTT.failure sequence=\(job.sequence)")
+                    VoiceTypeLogger.error("pipeline.localSTT.failure sequence=\(job.sequence)")
                     self?.injectionScheduler.finishJob(sequence: job.sequence)
                 }
             }
@@ -97,7 +97,7 @@ final class DictationPipeline {
                     VoiceTypeLogger.log("pipeline.cloudSTT.success sequence=\(job.sequence) chars=\(text.count)")
                     self?.handleTranscript(text, for: job)
                 case .failure:
-                    VoiceTypeLogger.log("pipeline.cloudSTT.failure sequence=\(job.sequence)")
+                    VoiceTypeLogger.error("pipeline.cloudSTT.failure sequence=\(job.sequence)")
                     self?.injectionScheduler.finishJob(sequence: job.sequence)
                 }
             }
@@ -107,7 +107,7 @@ final class DictationPipeline {
     private func handleTranscript(_ text: String, for job: DictationJob) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            VoiceTypeLogger.log("pipeline.emptyTranscript sequence=\(job.sequence)")
+            VoiceTypeLogger.warning("pipeline.emptyTranscript sequence=\(job.sequence)")
             injectionScheduler.finishJob(sequence: job.sequence)
             return
         }
@@ -178,7 +178,7 @@ final class DictationPipeline {
                             let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
                             refined = clean.isEmpty ? segment.text : clean
                         case .failure(let error):
-                            VoiceTypeLogger.log("pipeline.refine.failure sequence=\(job.sequence) segment=\(index) error=\(error.localizedDescription)")
+                            VoiceTypeLogger.error("pipeline.refine.failure sequence=\(job.sequence) segment=\(index)", error: error)
                             refined = segment.text
                         }
                         complete(with: refined)
@@ -186,7 +186,7 @@ final class DictationPipeline {
 
                     let timeout = self.softTimeout(for: settings.activeProfile.reasoningEffort, text: segment.text)
                     DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + timeout) {
-                        VoiceTypeLogger.log("pipeline.refine.timeout sequence=\(job.sequence) segment=\(index) timeout=\(timeout)")
+                        VoiceTypeLogger.warning("pipeline.refine.timeout sequence=\(job.sequence) segment=\(index) timeout=\(timeout)")
                         task?.cancel()
                         complete(with: segment.text)
                     }

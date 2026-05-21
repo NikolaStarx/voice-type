@@ -12,13 +12,13 @@ final class TextInjector {
             completion(true)
             return
         }
-        VoiceTypeLogger.log("textInjector.ax.unavailableOrFailed")
+        VoiceTypeLogger.warning("textInjector.ax.unavailableOrFailed")
 
         guard CGPreflightPostEventAccess() else {
-            VoiceTypeLogger.log("textInjector.postEventAccess.missing")
+            VoiceTypeLogger.error("textInjector.postEventAccess.missing")
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
-            VoiceTypeLogger.log("textInjector.permissionFallback.copiedToClipboard chars=\(text.count)")
+            VoiceTypeLogger.warning("textInjector.permissionFallback.copiedToClipboard chars=\(text.count)")
             NotificationCenter.default.post(
                 name: .voiceTypeInjectionFailed,
                 object: "Text injection needs Accessibility or Paste Events permission. Text copied to clipboard."
@@ -74,7 +74,7 @@ final class TextInjector {
 private enum AccessibilityTextInjector {
     static func inject(text: String) -> Bool {
         guard AXIsProcessTrusted() else {
-            VoiceTypeLogger.log("axInjector.notTrusted")
+            VoiceTypeLogger.error("axInjector.notTrusted")
             return false
         }
 
@@ -87,7 +87,7 @@ private enum AccessibilityTextInjector {
         )
         guard focusedError == .success,
               let focusedElement = focusedObject.map({ $0 as! AXUIElement }) else {
-            VoiceTypeLogger.log("axInjector.noFocusedElement error=\(focusedError.rawValue)")
+            VoiceTypeLogger.error("axInjector.noFocusedElement error=\(focusedError.rawValue)")
             return false
         }
         VoiceTypeLogger.log("axInjector.focusedElement.ok")
@@ -108,7 +108,7 @@ private enum AccessibilityTextInjector {
             VoiceTypeLogger.log("axInjector.selectedText.success")
             return true
         }
-        VoiceTypeLogger.log("axInjector.selectedText.failed error=\(error.rawValue)")
+        VoiceTypeLogger.warning("axInjector.selectedText.failed error=\(error.rawValue)")
         return false
     }
 
@@ -121,13 +121,13 @@ private enum AccessibilityTextInjector {
         )
         guard valueError == .success,
               let current = valueObject as? String else {
-            VoiceTypeLogger.log("axInjector.value.read.failed error=\(valueError.rawValue) valueType=\(String(describing: valueObject.map { type(of: $0) }))")
+            VoiceTypeLogger.warning("axInjector.value.read.failed error=\(valueError.rawValue) valueType=\(String(describing: valueObject.map { type(of: $0) }))")
             return false
         }
 
         let range = selectedRange(in: element) ?? CFRange(location: current.count, length: 0)
         guard range.location >= 0, range.location <= current.count else {
-            VoiceTypeLogger.log("axInjector.range.invalid location=\(range.location) length=\(range.length) current=\(current.count)")
+            VoiceTypeLogger.error("axInjector.range.invalid location=\(range.location) length=\(range.length) current=\(current.count)")
             return false
         }
 
@@ -141,7 +141,7 @@ private enum AccessibilityTextInjector {
             next as CFTypeRef
         )
         guard setError == .success else {
-            VoiceTypeLogger.log("axInjector.value.set.failed error=\(setError.rawValue)")
+            VoiceTypeLogger.error("axInjector.value.set.failed error=\(setError.rawValue)")
             return false
         }
 
@@ -160,7 +160,7 @@ private enum AccessibilityTextInjector {
         guard error == .success,
               let axValue = rangeObject,
               CFGetTypeID(axValue) == AXValueGetTypeID() else {
-            VoiceTypeLogger.log("axInjector.range.read.failed error=\(error.rawValue)")
+            VoiceTypeLogger.warning("axInjector.range.read.failed error=\(error.rawValue)")
             return nil
         }
         var range = CFRange(location: 0, length: 0)
@@ -178,7 +178,11 @@ private enum AccessibilityTextInjector {
             kAXSelectedTextRangeAttribute as CFString,
             value
         )
-        VoiceTypeLogger.log("axInjector.range.set error=\(error.rawValue)")
+        if error == .success {
+            VoiceTypeLogger.log("axInjector.range.set success")
+        } else {
+            VoiceTypeLogger.warning("axInjector.range.set failed error=\(error.rawValue)")
+        }
     }
 }
 

@@ -72,7 +72,7 @@ enum AudioDeviceManager {
             &deviceID
         )
         guard status == noErr, deviceID != 0 else {
-            VoiceTypeLogger.log("audioDevices.defaultInput.failed status=\(status) deviceID=\(deviceID)")
+            VoiceTypeLogger.error("audioDevices.defaultInput.failed status=\(status) deviceID=\(deviceID)")
             return nil
         }
         VoiceTypeLogger.log("audioDevices.defaultInput deviceID=\(deviceID)")

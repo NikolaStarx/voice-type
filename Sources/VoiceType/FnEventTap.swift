@@ -38,7 +38,7 @@ final class FnEventTap {
         guard let eventTap else {
             startFallbackMonitor(reason: "Event tap unavailable")
             postStatus(.failed("Event tap unavailable"))
-            VoiceTypeLogger.log("fnTap.create.failed")
+            VoiceTypeLogger.error("fnTap.create.failed")
             return
         }
         runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
