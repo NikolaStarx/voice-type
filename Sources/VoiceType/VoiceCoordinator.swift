@@ -12,6 +12,7 @@ final class VoiceCoordinator {
     private var isRecording = false
     private var lastHoldStartedAt: Date?
     private var activeSessionID: UUID?
+    private var pauseBatcher: PauseBatchSegmenter?
 
     init(floatingPanel: FloatingPanelController, localAI: LocalAIManager) {
         self.floatingPanel = floatingPanel
@@ -35,6 +36,16 @@ final class VoiceCoordinator {
         let backend = settings.backend
         let language = settings.language
         let inputDeviceUID = settings.selectedInputDeviceUID
+        let llmSettings = settings.llm
+        if backend == .appleSpeech,
+           llmSettings.activeProfile.segmentationStrategy == .pauseBatches {
+            pauseBatcher = PauseBatchSegmenter(llmSettings: llmSettings) { [weak self] text, settings in
+                self?.pipeline.submitTextBatch(text, llmSettings: settings, presegmented: true)
+            }
+            VoiceTypeLogger.log("coordinator.pauseBatcher.enabled threshold=\(llmSettings.activeProfile.pauseThresholdSeconds)")
+        } else {
+            pauseBatcher = nil
+        }
         floatingPanel.show(text: backend == .appleSpeech ? "Listening..." : "Recording...")
 
         let capture = SpeechCaptureSession(backend: backend, language: language, inputDeviceUID: inputDeviceUID)
@@ -44,16 +55,19 @@ final class VoiceCoordinator {
                 partialHandler: { [weak self] text in
                     guard let self, self.activeSessionID == sessionID else { return }
                     self.floatingPanel.update(text: text)
+                    self.pauseBatcher?.updateTranscript(text)
                 },
                 rmsHandler: { [weak self] rms in
                     guard let self, self.activeSessionID == sessionID else { return }
                     self.floatingPanel.update(level: rms)
+                    self.pauseBatcher?.updateRMS(rms)
                 }
             )
         } catch {
             isRecording = false
             session = nil
             activeSessionID = nil
+            pauseBatcher = nil
             pipeline.setRecordingActive(false)
             VoiceTypeLogger.log("coordinator.beginHold.failed \(error.localizedDescription)")
             showTemporaryError("Recording failed: \(error.localizedDescription)")
@@ -65,10 +79,12 @@ final class VoiceCoordinator {
         VoiceTypeLogger.log("coordinator.endHold")
         let releasedBackend = settings.backend
         let releasedLanguage = settings.language
+        let releasedPauseBatcher = pauseBatcher
         isRecording = false
         self.session = nil
         let releasedSessionID = activeSessionID
         activeSessionID = nil
+        pauseBatcher = nil
 
         let minimumHold: TimeInterval = 0.12
         if let start = lastHoldStartedAt, Date().timeIntervalSince(start) < minimumHold {
@@ -88,7 +104,15 @@ final class VoiceCoordinator {
         session.stop { [weak self] appleText, audioURL in
             guard let self else { return }
             DispatchQueue.main.async {
-                if self.activeSessionID == nil || self.activeSessionID == releasedSessionID {
+                let noNewRecording = self.activeSessionID == nil || self.activeSessionID == releasedSessionID
+                if let releasedPauseBatcher, releasedBackend == .appleSpeech {
+                    releasedPauseBatcher.flushFinal(appleText)
+                    if noNewRecording {
+                        self.pipeline.setRecordingActive(false)
+                    }
+                    return
+                }
+                if noNewRecording {
                     self.pipeline.setRecordingActive(false)
                 }
                 self.pipeline.submit(

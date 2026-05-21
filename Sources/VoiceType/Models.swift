@@ -81,11 +81,80 @@ enum ReasoningEffort: String, CaseIterable, Codable {
     }
 }
 
+enum RefinementSegmentationStrategy: String, CaseIterable, Codable {
+    case smartSentences
+    case pauseBatches
+    case wholeUtterance
+
+    var title: String {
+        switch self {
+        case .smartSentences: return "Smart Sentences"
+        case .pauseBatches: return "Pause Batches"
+        case .wholeUtterance: return "Whole Utterance"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .smartSentences: return "Split transcript by punctuation and safe text boundaries after release."
+        case .pauseBatches: return "Send batches when the speaker pauses, without cutting audio."
+        case .wholeUtterance: return "Wait until Fn is released, then refine the full transcript."
+        }
+    }
+}
+
 struct LLMProfile: Codable, Identifiable, Equatable {
     var id: String
     var name: String
     var systemPrompt: String
     var reasoningEffort: ReasoningEffort
+    var segmentationStrategy: RefinementSegmentationStrategy
+    var pauseThresholdSeconds: Double
+
+    init(
+        id: String,
+        name: String,
+        systemPrompt: String,
+        reasoningEffort: ReasoningEffort,
+        segmentationStrategy: RefinementSegmentationStrategy,
+        pauseThresholdSeconds: Double
+    ) {
+        self.id = id
+        self.name = name
+        self.systemPrompt = systemPrompt
+        self.reasoningEffort = reasoningEffort
+        self.segmentationStrategy = segmentationStrategy
+        self.pauseThresholdSeconds = pauseThresholdSeconds
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case systemPrompt
+        case reasoningEffort
+        case segmentationStrategy
+        case pauseThresholdSeconds
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        systemPrompt = try container.decode(String.self, forKey: .systemPrompt)
+        reasoningEffort = try container.decode(ReasoningEffort.self, forKey: .reasoningEffort)
+
+        if let strategy = try container.decodeIfPresent(RefinementSegmentationStrategy.self, forKey: .segmentationStrategy) {
+            segmentationStrategy = strategy
+        } else if id == "formal" {
+            segmentationStrategy = .wholeUtterance
+        } else if id == "oral" {
+            segmentationStrategy = .pauseBatches
+        } else {
+            segmentationStrategy = .smartSentences
+        }
+
+        pauseThresholdSeconds = try container.decodeIfPresent(Double.self, forKey: .pauseThresholdSeconds) ?? 0.85
+    }
 
     static let defaultProfiles: [LLMProfile] = [
         LLMProfile(
@@ -99,7 +168,9 @@ Never rewrite, summarize, polish, reorder, normalize style, or remove content th
 Preserve the speaker's wording, punctuation style, language mix, hesitations, and informality.
 If the input already looks correct, return it exactly as-is.
 """,
-            reasoningEffort: .minimal
+            reasoningEffort: .minimal,
+            segmentationStrategy: .pauseBatches,
+            pauseThresholdSeconds: 0.85
         ),
         LLMProfile(
             id: "mixed_tech",
@@ -111,7 +182,9 @@ Fix clear ASR errors involving programming, product, and AI terms, especially Ch
 Keep all correct content unchanged. Do not add missing ideas, do not improve style, do not shorten, and do not remove repeated words unless they are plainly duplicated by ASR.
 If uncertain, keep the original wording.
 """,
-            reasoningEffort: .low
+            reasoningEffort: .low,
+            segmentationStrategy: .pauseBatches,
+            pauseThresholdSeconds: 0.65
         ),
         LLMProfile(
             id: "formal",
@@ -123,7 +196,9 @@ You may correct obvious ASR errors, punctuation, grammar, spacing, and capitaliz
 Do not add facts, do not remove substantive content, do not change technical terms, and do not change the speaker's meaning.
 If the text is already formal and correct, return it as-is.
 """,
-            reasoningEffort: .high
+            reasoningEffort: .high,
+            segmentationStrategy: .wholeUtterance,
+            pauseThresholdSeconds: 1.2
         )
     ]
 }

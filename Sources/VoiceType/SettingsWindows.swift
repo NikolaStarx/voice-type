@@ -14,12 +14,14 @@ final class LLMSettingsWindowController: NSWindowController {
     private let modelField = NSTextField()
     private let profileNameField = NSTextField()
     private let reasoningPopup = NSPopUpButton()
+    private let segmentationPopup = NSPopUpButton()
+    private let pauseThresholdField = NSTextField()
     private let promptView = NSTextView()
     private let statusLabel = NSTextField(labelWithString: "")
 
     init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 680, height: 620),
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 700),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -81,6 +83,15 @@ final class LLMSettingsWindowController: NSWindowController {
 
         reasoningPopup.addItems(withTitles: ReasoningEffort.allCases.map(\.title))
         root.addArrangedSubview(formRow("Reasoning", reasoningPopup))
+
+        segmentationPopup.addItems(withTitles: RefinementSegmentationStrategy.allCases.map(\.title))
+        segmentationPopup.target = self
+        segmentationPopup.action = #selector(segmentationChanged)
+        root.addArrangedSubview(formRow("Segmentation", segmentationPopup))
+
+        pauseThresholdField.placeholderString = "0.85"
+        pauseThresholdField.formatter = decimalFormatter()
+        root.addArrangedSubview(formRow("Pause Seconds", pauseThresholdField))
 
         let promptLabel = label("System Prompt")
         root.addArrangedSubview(promptLabel)
@@ -145,6 +156,9 @@ final class LLMSettingsWindowController: NSWindowController {
         profileNameField.stringValue = profile.name
         promptView.string = profile.systemPrompt
         reasoningPopup.selectItem(at: ReasoningEffort.allCases.firstIndex(of: profile.reasoningEffort) ?? 0)
+        segmentationPopup.selectItem(at: RefinementSegmentationStrategy.allCases.firstIndex(of: profile.segmentationStrategy) ?? 0)
+        pauseThresholdField.stringValue = String(format: "%.2f", profile.pauseThresholdSeconds)
+        segmentationChanged()
     }
 
     private func captureSelectedProfile() {
@@ -154,6 +168,8 @@ final class LLMSettingsWindowController: NSWindowController {
         profile.name = name.isEmpty ? "Untitled" : name
         profile.systemPrompt = promptView.string
         profile.reasoningEffort = ReasoningEffort.allCases[max(0, reasoningPopup.indexOfSelectedItem)]
+        profile.segmentationStrategy = RefinementSegmentationStrategy.allCases[max(0, segmentationPopup.indexOfSelectedItem)]
+        profile.pauseThresholdSeconds = max(0.2, min(5.0, pauseThresholdField.doubleValue))
         settings.profiles[selectedProfileIndex] = profile
     }
 
@@ -170,7 +186,9 @@ final class LLMSettingsWindowController: NSWindowController {
             id: UUID().uuidString,
             name: "Custom",
             systemPrompt: LLMProfile.defaultProfiles[0].systemPrompt,
-            reasoningEffort: .low
+            reasoningEffort: .low,
+            segmentationStrategy: .smartSentences,
+            pauseThresholdSeconds: 0.85
         )
         settings.profiles.append(profile)
         selectedProfileIndex = settings.profiles.count - 1
@@ -190,6 +208,12 @@ final class LLMSettingsWindowController: NSWindowController {
 
     @objc private func markDirty() {
         statusLabel.stringValue = ""
+    }
+
+    @objc private func segmentationChanged() {
+        let strategy = RefinementSegmentationStrategy.allCases[max(0, segmentationPopup.indexOfSelectedItem)]
+        pauseThresholdField.isEnabled = strategy == .pauseBatches
+        pauseThresholdField.alphaValue = strategy == .pauseBatches ? 1.0 : 0.55
     }
 
     @objc private func save() {
@@ -325,4 +349,14 @@ private func formRow(_ title: String, _ control: NSView) -> NSStackView {
     control.translatesAutoresizingMaskIntoConstraints = false
     control.setContentHuggingPriority(.defaultLow, for: .horizontal)
     return row
+}
+
+private func decimalFormatter() -> NumberFormatter {
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .decimal
+    formatter.minimum = 0.2
+    formatter.maximum = 5
+    formatter.minimumFractionDigits = 0
+    formatter.maximumFractionDigits = 2
+    return formatter
 }

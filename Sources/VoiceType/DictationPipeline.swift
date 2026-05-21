@@ -30,15 +30,32 @@ final class DictationPipeline {
             llmSettings: settings.llm,
             cloudSettings: settings.cloudSTT,
             appleText: appleText,
-            audioURL: audioURL
+            audioURL: audioURL,
+            segmentationMode: .profile
         )
         injectionScheduler.registerJob(sequence: sequence)
         resolveSTT(for: job)
     }
 
-    func injectImmediate(_ text: String) {
+    func submitTextBatch(_ text: String, llmSettings: LLMSettings, presegmented: Bool) {
         let sequence = reserveSequence()
-        injectionScheduler.enqueue(text: text, sequence: sequence, segmentIndex: 0, segmentCount: 1)
+        VoiceTypeLogger.log("pipeline.submitTextBatch sequence=\(sequence) chars=\(text.count) presegmented=\(presegmented)")
+        let job = DictationJob(
+            sequence: sequence,
+            backend: .appleSpeech,
+            language: SettingsStore.shared.language,
+            llmSettings: llmSettings,
+            cloudSettings: settings.cloudSTT,
+            appleText: text,
+            audioURL: nil,
+            segmentationMode: presegmented ? .presegmentedBatch : .profile
+        )
+        injectionScheduler.registerJob(sequence: sequence)
+        handleTranscript(text, for: job)
+    }
+
+    func injectImmediate(_ text: String) {
+        submitTextBatch(text, llmSettings: settings.llm, presegmented: true)
     }
 
     private func reserveSequence() -> Int {
@@ -95,7 +112,7 @@ final class DictationPipeline {
             return
         }
 
-        let segments = TranscriptSegmenter.segments(from: trimmed)
+        let segments = segments(for: trimmed, job: job)
         VoiceTypeLogger.log("pipeline.handleTranscript sequence=\(job.sequence) chars=\(trimmed.count) segments=\(segments.count) text=\(trimmed)")
         guard !segments.isEmpty else {
             injectionScheduler.finishJob(sequence: job.sequence)
@@ -182,6 +199,23 @@ final class DictationPipeline {
         !settings.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private func segments(for text: String, job: DictationJob) -> [TranscriptSegment] {
+        switch job.segmentationMode {
+        case .presegmentedBatch:
+            return [TranscriptSegment(text: text, suffix: "")]
+        case .profile:
+            let strategy = job.llmSettings.activeProfile.segmentationStrategy
+            switch strategy {
+            case .wholeUtterance:
+                return [TranscriptSegment(text: text, suffix: "")]
+            case .smartSentences:
+                return TranscriptSegmenter.segments(from: text)
+            case .pauseBatches:
+                return TranscriptSegmenter.segments(from: text)
+            }
+        }
+    }
+
     private func maxConcurrentRefinements(for effort: ReasoningEffort) -> Int {
         switch effort {
         case .minimal, .low: return 4
@@ -209,6 +243,12 @@ private struct DictationJob {
     var cloudSettings: CloudSTTSettings
     var appleText: String
     var audioURL: URL?
+    var segmentationMode: SegmentationMode
+}
+
+private enum SegmentationMode {
+    case profile
+    case presegmentedBatch
 }
 
 private struct TranscriptSegment {
