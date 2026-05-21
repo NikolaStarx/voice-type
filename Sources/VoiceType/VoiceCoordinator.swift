@@ -13,6 +13,7 @@ final class VoiceCoordinator {
     private var lastHoldStartedAt: Date?
     private var activeSessionID: UUID?
     private var pauseBatcher: PauseBatchSegmenter?
+    private var retiredSessions: [ObjectIdentifier: SpeechCaptureSession] = [:]
 
     init(floatingPanel: FloatingPanelController, localAI: LocalAIManager) {
         self.floatingPanel = floatingPanel
@@ -72,6 +73,7 @@ final class VoiceCoordinator {
             session = nil
             activeSessionID = nil
             pauseBatcher = nil
+            retire(capture)
             pipeline.setRecordingActive(false)
             VoiceTypeLogger.error("coordinator.beginHold.failed", error: error)
             showTemporaryError("Recording failed: \(error.localizedDescription)")
@@ -93,6 +95,7 @@ final class VoiceCoordinator {
         let minimumHold: TimeInterval = 0.12
         if let start = lastHoldStartedAt, Date().timeIntervalSince(start) < minimumHold {
             session.cancel()
+            retire(session)
             pipeline.setRecordingActive(false)
             floatingPanel.hide()
             VoiceTypeLogger.log("coordinator.endHold.tooShort held=\(Date().timeIntervalSince(start))")
@@ -126,12 +129,24 @@ final class VoiceCoordinator {
                 )
             }
         }
+        retire(session)
     }
 
     private func showTemporaryError(_ message: String) {
         floatingPanel.updateStatus(message)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { [weak self] in
             self?.floatingPanel.hide()
+        }
+    }
+
+    private func retire(_ session: SpeechCaptureSession) {
+        let id = ObjectIdentifier(session)
+        retiredSessions[id] = session
+        VoiceTypeLogger.log("coordinator.session.retired id=\(session.debugID) retained=\(retiredSessions.count)")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) { [weak self] in
+            guard let self else { return }
+            self.retiredSessions.removeValue(forKey: id)
+            VoiceTypeLogger.log("coordinator.session.released id=\(session.debugID) retained=\(self.retiredSessions.count)")
         }
     }
 }

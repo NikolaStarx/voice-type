@@ -6,7 +6,9 @@ import CoreGraphics
 final class TextInjector {
     func inject(text: String, completion: @escaping (Bool) -> Void) {
         let frontmost = NSWorkspace.shared.frontmostApplication
-        VoiceTypeLogger.log("textInjector.inject chars=\(text.count) axTrusted=\(AXIsProcessTrusted()) postEvents=\(CGPreflightPostEventAccess()) frontmost=\(frontmost?.localizedName ?? "nil") bundle=\(frontmost?.bundleIdentifier ?? "nil") text=\(text)")
+        let axTrusted = AXIsProcessTrusted()
+        let postEvents = CGPreflightPostEventAccess()
+        VoiceTypeLogger.log("textInjector.inject chars=\(text.count) axTrusted=\(axTrusted) postEvents=\(postEvents) frontmost=\(frontmost?.localizedName ?? "nil") bundle=\(frontmost?.bundleIdentifier ?? "nil") text=\(text)")
         if AccessibilityTextInjector.inject(text: text) {
             VoiceTypeLogger.log("textInjector.ax.success")
             completion(true)
@@ -14,8 +16,8 @@ final class TextInjector {
         }
         VoiceTypeLogger.warning("textInjector.ax.unavailableOrFailed")
 
-        guard CGPreflightPostEventAccess() else {
-            VoiceTypeLogger.error("textInjector.postEventAccess.missing")
+        guard axTrusted || postEvents else {
+            VoiceTypeLogger.error("textInjector.eventInjectionAccess.missing axTrusted=\(axTrusted) postEvents=\(postEvents)")
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
             VoiceTypeLogger.warning("textInjector.permissionFallback.copiedToClipboard chars=\(text.count)")

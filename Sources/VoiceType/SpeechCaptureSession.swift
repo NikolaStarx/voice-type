@@ -22,6 +22,8 @@ final class SpeechCaptureSession {
     private var lastAudioLogAt = Date.distantPast
     private var rmsPeak: Float = 0
 
+    var debugID: String { id }
+
     init(backend: SpeechBackend, language: LanguageOption, inputDeviceUID: String) {
         self.backend = backend
         self.language = language
