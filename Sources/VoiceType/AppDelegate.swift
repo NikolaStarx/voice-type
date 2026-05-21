@@ -26,9 +26,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if settings.localAutoPrepare {
             localAI.prepareAllInBackground()
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            self.showPermissionSetupIfNeeded()
-        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -41,27 +38,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         floatingPanel.show(text: message)
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { [weak self] in
             self?.floatingPanel.hide()
-        }
-    }
-
-    private func showPermissionSetupIfNeeded() {
-        guard PermissionsManager.shared.needsSetup else { return }
-        let alert = NSAlert()
-        alert.messageText = "VoiceType needs macOS permissions"
-        alert.informativeText = """
-To work globally, VoiceType needs Input Monitoring for the Fn key, Microphone and Speech Recognition for dictation, and Accessibility or Paste Events to insert text.
-
-\(PermissionsManager.shared.statusSummary())
-"""
-        alert.addButton(withTitle: "Request Permissions")
-        alert.addButton(withTitle: "Open Input Monitoring")
-        alert.addButton(withTitle: "Later")
-        NSApp.activate(ignoringOtherApps: true)
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            PermissionsManager.shared.requestEventPermissionsNow()
-        } else if response == .alertSecondButtonReturn {
-            PermissionsManager.shared.openInputMonitoringSettings()
         }
     }
 }

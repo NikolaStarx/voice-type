@@ -10,9 +10,7 @@ final class PermissionsManager {
     private let settings = SettingsStore.shared
 
     func requestInitialPermissionsOnce() {
-        requestAccessibilityOnce()
-        requestListenEventsOnce()
-        requestPostEventsOnce()
+        VoiceTypeLogger.log("permissions.preflight \(statusSummary())")
         requestSpeechIfNeeded()
         requestMicrophoneIfNeeded()
     }
@@ -50,25 +48,6 @@ final class PermissionsManager {
         let mic = AVCaptureDevice.authorizationStatus(for: .audio).title
         let speech = SFSpeechRecognizer.authorizationStatus().title
         return "\(listen), \(post), \(ax), Mic \(mic), Speech \(speech)"
-    }
-
-    private func requestAccessibilityOnce() {
-        guard !AXIsProcessTrusted(), !settings.didRequestAccessibility else { return }
-        let options = [kAXTrustedCheckOptionPrompt.takeRetainedValue() as String: true] as CFDictionary
-        AXIsProcessTrustedWithOptions(options)
-        settings.didRequestAccessibility = true
-    }
-
-    private func requestListenEventsOnce() {
-        guard !CGPreflightListenEventAccess(), !settings.didRequestListenEvents else { return }
-        _ = CGRequestListenEventAccess()
-        settings.didRequestListenEvents = true
-    }
-
-    private func requestPostEventsOnce() {
-        guard !CGPreflightPostEventAccess(), !settings.didRequestPostEvents else { return }
-        _ = CGRequestPostEventAccess()
-        settings.didRequestPostEvents = true
     }
 
     private func requestSpeechIfNeeded() {
