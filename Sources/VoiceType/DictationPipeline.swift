@@ -23,7 +23,9 @@ final class DictationPipeline {
     func submit(appleText: String, audioURL: URL?, backend: SpeechBackend, language: LanguageOption) {
         let sequence = reserveSequence()
         VoiceTypeLogger.log("pipeline.submit sequence=\(sequence) backend=\(backend.rawValue) appleChars=\(appleText.count) audio=\(audioURL?.path ?? "nil")")
-        postStatus(.queued)
+        if backend != .appleSpeech {
+            postStatus(.queued)
+        }
         let job = DictationJob(
             sequence: sequence,
             backend: backend,
@@ -71,7 +73,7 @@ final class DictationPipeline {
         VoiceTypeLogger.log("pipeline.resolveSTT sequence=\(job.sequence) backend=\(job.backend.rawValue)")
         switch job.backend {
         case .appleSpeech:
-            postStatus(.transcribing("Finalizing transcript..."))
+            postStatus(.transcribing("Finalizing..."))
             handleTranscript(job.appleText, for: job)
         case .localQwen06, .localQwen17:
             guard let model = job.backend.localModel, let audioURL = job.audioURL else {

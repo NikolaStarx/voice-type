@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var coordinator: VoiceCoordinator!
     private var eventTap: FnEventTap!
     private var localAI: LocalAIManager!
+    private var activeRecordingBackend: SpeechBackend?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSSetUncaughtExceptionHandler { exception in
@@ -28,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         eventTap.start()
         NotificationCenter.default.addObserver(self, selector: #selector(injectionFailed(_:)), name: .voiceTypeInjectionFailed, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(pipelineStatusChanged(_:)), name: .voiceTypePipelineStatusChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(recordingStateChanged(_:)), name: .voiceTypeRecordingStateChanged, object: nil)
         DistributedNotificationCenter.default().addObserver(
             self,
             selector: #selector(runDiagnosticPaste(_:)),
@@ -58,6 +60,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func pipelineStatusChanged(_ notification: Notification) {
         guard let status = notification.object as? VoiceTypePipelineStatus else { return }
         VoiceTypeLogger.log("app.pipelineStatus \(status.title)")
+        if activeRecordingBackend == .appleSpeech, status.isBackgroundProgress {
+            VoiceTypeLogger.log("app.pipelineStatus.suppressedForAppleStreaming status=\(status.title)")
+            return
+        }
         if status == .done {
             floatingPanel.hide()
             return
@@ -72,6 +78,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.floatingPanel.hide()
             }
         }
+    }
+
+    @objc private func recordingStateChanged(_ notification: Notification) {
+        guard let state = notification.object as? VoiceTypeRecordingState else { return }
+        activeRecordingBackend = state.active ? state.backend : nil
+        VoiceTypeLogger.log("app.recordingState active=\(state.active) backend=\(state.backend.rawValue)")
     }
 
     @objc private func runDiagnosticPaste(_ notification: Notification) {

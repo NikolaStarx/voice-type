@@ -12,6 +12,7 @@ final class VoiceCoordinator {
     private var isRecording = false
     private var lastHoldStartedAt: Date?
     private var activeSessionID: UUID?
+    private var activeBackend: SpeechBackend?
     private var pauseBatcher: PauseBatchSegmenter?
     private var retiredSessions: [ObjectIdentifier: SpeechCaptureSession] = [:]
 
@@ -31,7 +32,6 @@ final class VoiceCoordinator {
             return
         }
         isRecording = true
-        pipeline.setRecordingActive(true)
         lastHoldStartedAt = Date()
         let sessionID = UUID()
         activeSessionID = sessionID
@@ -40,6 +40,9 @@ final class VoiceCoordinator {
         let language = settings.language
         let inputDeviceUID = settings.selectedInputDeviceUID
         let llmSettings = settings.llm
+        activeBackend = backend
+        postRecordingState(active: true, backend: backend)
+        pipeline.setRecordingActive(true)
         VoiceTypeLogger.log("coordinator.beginHold session=\(sessionID.uuidString) backend=\(backend.rawValue) language=\(language.rawValue) inputDevice=\(inputDeviceUID.isEmpty ? "default" : inputDeviceUID) llmEnabled=\(llmSettings.enabled) profile=\(llmSettings.activeProfile.name) segmentation=\(llmSettings.activeProfile.segmentationStrategy.rawValue)")
         if backend == .appleSpeech,
            llmSettings.activeProfile.segmentationStrategy == .pauseBatches {
@@ -72,8 +75,10 @@ final class VoiceCoordinator {
             isRecording = false
             session = nil
             activeSessionID = nil
+            activeBackend = nil
             pauseBatcher = nil
             retire(capture)
+            postRecordingState(active: false, backend: backend)
             pipeline.setRecordingActive(false)
             VoiceTypeLogger.error("coordinator.beginHold.failed", error: error)
             showTemporaryError("Recording failed: \(error.localizedDescription)")
@@ -83,27 +88,30 @@ final class VoiceCoordinator {
     func endHold() {
         guard isRecording, let session else { return }
         VoiceTypeLogger.log("coordinator.endHold session=\(activeSessionID?.uuidString ?? "nil")")
-        let releasedBackend = settings.backend
+        let releasedBackend = activeBackend ?? settings.backend
         let releasedLanguage = settings.language
         let releasedPauseBatcher = pauseBatcher
         isRecording = false
         self.session = nil
         let releasedSessionID = activeSessionID
         activeSessionID = nil
+        activeBackend = nil
         pauseBatcher = nil
 
         let minimumHold: TimeInterval = 0.12
         if let start = lastHoldStartedAt, Date().timeIntervalSince(start) < minimumHold {
             session.cancel()
             retire(session)
+            postRecordingState(active: false, backend: releasedBackend)
             pipeline.setRecordingActive(false)
             floatingPanel.hide()
             VoiceTypeLogger.log("coordinator.endHold.tooShort held=\(Date().timeIntervalSince(start))")
             return
         }
 
-        floatingPanel.updateStatus("Queued")
-        NotificationCenter.default.post(name: .voiceTypePipelineStatusChanged, object: VoiceTypePipelineStatus.queued)
+        postRecordingState(active: false, backend: releasedBackend)
+        let releaseStatus: VoiceTypePipelineStatus = releasedBackend == .appleSpeech ? .transcribing("Finalizing...") : .queued
+        NotificationCenter.default.post(name: .voiceTypePipelineStatusChanged, object: releaseStatus)
         VoiceTypeLogger.log("coordinator.queued session=\(releasedSessionID?.uuidString ?? "nil") backend=\(releasedBackend.rawValue)")
 
         session.stop { [weak self] appleText, audioURL in
@@ -137,6 +145,13 @@ final class VoiceCoordinator {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { [weak self] in
             self?.floatingPanel.hide()
         }
+    }
+
+    private func postRecordingState(active: Bool, backend: SpeechBackend) {
+        NotificationCenter.default.post(
+            name: .voiceTypeRecordingStateChanged,
+            object: VoiceTypeRecordingState(active: active, backend: backend)
+        )
     }
 
     private func retire(_ session: SpeechCaptureSession) {

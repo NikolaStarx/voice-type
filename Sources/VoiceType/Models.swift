@@ -306,6 +306,20 @@ enum VoiceTypePipelineStatus: Equatable {
         if case .failed = self { return true }
         return false
     }
+
+    var isBackgroundProgress: Bool {
+        switch self {
+        case .queued, .transcribing, .refining, .inserting, .done:
+            return true
+        case .failed:
+            return false
+        }
+    }
+}
+
+struct VoiceTypeRecordingState {
+    var active: Bool
+    var backend: SpeechBackend
 }
 
 extension Notification.Name {
@@ -314,4 +328,5 @@ extension Notification.Name {
     static let voiceTypeFnEventTapStatusChanged = Notification.Name("VoiceTypeFnEventTapStatusChanged")
     static let voiceTypeInjectionFailed = Notification.Name("VoiceTypeInjectionFailed")
     static let voiceTypePipelineStatusChanged = Notification.Name("VoiceTypePipelineStatusChanged")
+    static let voiceTypeRecordingStateChanged = Notification.Name("VoiceTypeRecordingStateChanged")
 }
