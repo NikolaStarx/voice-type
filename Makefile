@@ -18,7 +18,7 @@ build: icon signing
 	cp "$(RESOURCES)/Info.plist" "$(APP_BUNDLE)/Contents/Info.plist"
 	cp "$(RESOURCES)/AppIcon.icns" "$(APP_BUNDLE)/Contents/Resources/AppIcon.icns"
 	cp -R "$(RESOURCES)/LocalAI" "$(APP_BUNDLE)/Contents/Resources/LocalAI"
-	codesign --force --deep --sign "$(SIGN_IDENTITY)" "$(APP_BUNDLE)"
+	codesign --force --deep --keychain "$(SIGN_KEYCHAIN)" --sign "$(SIGN_IDENTITY)" "$(APP_BUNDLE)"
 	@echo "Built signed app bundle: $(APP_BUNDLE)"
 
 icon:
@@ -32,6 +32,7 @@ run: build
 
 install: build
 	mkdir -p "$(INSTALL_DIR)"
+	pkill -x "$(APP_NAME)" 2>/dev/null || true
 	rm -rf "$(INSTALL_DIR)/$(APP_NAME).app"
 	cp -R "$(APP_BUNDLE)" "$(INSTALL_DIR)/$(APP_NAME).app"
 	@echo "Installed: $(INSTALL_DIR)/$(APP_NAME).app"

@@ -16,8 +16,8 @@ if [[ ! -f "${KEYCHAIN}" ]]; then
   security create-keychain -p "${PASSWORD}" "${KEYCHAIN}" >/dev/null
 fi
 
-security set-keychain-settings -lut 21600 "${KEYCHAIN}" >/dev/null
 security unlock-keychain -p "${PASSWORD}" "${KEYCHAIN}" >/dev/null
+security set-keychain-settings -lut 21600 "${KEYCHAIN}" >/dev/null
 
 CURRENT_KEYCHAINS=()
 while IFS= read -r line; do
