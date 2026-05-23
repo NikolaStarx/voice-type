@@ -138,9 +138,17 @@ final class LocalAIManager {
     private func startServerIfNeeded() {
         processLock.lock()
         let existingServer = serverProcess
+        if let existingServer, !existingServer.isRunning {
+            serverProcess = nil
+        }
         processLock.unlock()
         if let existingServer, existingServer.isRunning {
             VoiceTypeLogger.log("localAI.server.alreadyRunning pid=\(existingServer.processIdentifier)")
+            return
+        }
+        if isServerHealthyNow() {
+            postStatus(.ready("Local ASR server ready"))
+            VoiceTypeLogger.log("localAI.server.externalReady port=\(port)")
             return
         }
         guard FileManager.default.isExecutableFile(atPath: venvPython.path),
@@ -173,6 +181,26 @@ final class LocalAIManager {
             postStatus(.failed(error.localizedDescription))
             VoiceTypeLogger.error("localAI.server.start.failed", error: error)
         }
+    }
+
+    private func isServerHealthyNow(timeout: TimeInterval = 0.7) -> Bool {
+        guard let url = URL(string: "http://127.0.0.1:\(port)/health") else {
+            return false
+        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = timeout
+
+        let semaphore = DispatchSemaphore(value: 0)
+        var isReady = false
+        URLSession.shared.dataTask(with: request) { _, response, _ in
+            if let http = response as? HTTPURLResponse, http.statusCode == 200 {
+                isReady = true
+                VoiceTypeLogger.log("localAI.server.healthProbe.ready status=\(http.statusCode)")
+            }
+            semaphore.signal()
+        }.resume()
+        _ = semaphore.wait(timeout: .now() + timeout + 0.3)
+        return isReady
     }
 
     private func waitForServer(timeout: TimeInterval, completion: @escaping (Bool) -> Void) {

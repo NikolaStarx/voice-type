@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         VoiceTypeLogger.log("app.launch pid=\(ProcessInfo.processInfo.processIdentifier) bundle=\(Bundle.main.bundlePath) executable=\(Bundle.main.executableURL?.path ?? "nil") version=\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown")")
         VoiceTypeLogger.compactOldLogsIfNeeded()
+        guard continueLaunchingFromSupportedLocation() else { return }
         PermissionsManager.shared.requestInitialPermissionsOnce()
 
         floatingPanel = FloatingPanelController()
@@ -90,5 +91,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let text = notification.userInfo?["text"] as? String ?? "VoiceType diagnostic paste 中文 English 123"
         VoiceTypeLogger.log("app.diagnosticPasteNotification chars=\(text.count)")
         coordinator.injectDiagnosticText(text)
+    }
+
+    private func continueLaunchingFromSupportedLocation() -> Bool {
+        let bundleURL = Bundle.main.bundleURL.standardizedFileURL
+        let staleUserInstall = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent("Applications/VoiceType.app", isDirectory: true)
+            .standardizedFileURL
+        let canonicalInstall = URL(fileURLWithPath: "/Applications/VoiceType.app", isDirectory: true)
+            .standardizedFileURL
+
+        guard bundleURL.path == staleUserInstall.path,
+              FileManager.default.fileExists(atPath: canonicalInstall.path) else {
+            return true
+        }
+
+        VoiceTypeLogger.error("app.staleUserInstallDetected bundle=\(bundleURL.path) canonical=\(canonicalInstall.path)")
+        let opened = NSWorkspace.shared.open(canonicalInstall)
+        VoiceTypeLogger.log("app.staleUserInstall.openCanonical opened=\(opened)")
+        NSApp.terminate(nil)
+        return false
     }
 }

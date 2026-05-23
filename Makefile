@@ -5,6 +5,7 @@ APP_BUNDLE := $(BUILD_DIR)/$(APP_NAME).app
 EXECUTABLE := .build/$(CONFIG)/$(APP_NAME)
 RESOURCES := Resources
 INSTALL_DIR ?= /Applications
+STALE_USER_APP := $(HOME)/Applications/$(APP_NAME).app
 SIGN_KEYCHAIN := $(HOME)/Library/Application Support/VoiceType/Signing/VoiceTypeBuild.keychain-db
 SIGN_IDENTITY ?= VoiceType Build Code Signing
 
@@ -33,6 +34,8 @@ run: build
 install: build
 	mkdir -p "$(INSTALL_DIR)"
 	pkill -x "$(APP_NAME)" 2>/dev/null || true
+	pkill -f "$(STALE_USER_APP)/Contents/MacOS/$(APP_NAME)" 2>/dev/null || true
+	rm -rf "$(STALE_USER_APP)"
 	rm -rf "$(INSTALL_DIR)/$(APP_NAME).app"
 	cp -R "$(APP_BUNDLE)" "$(INSTALL_DIR)/$(APP_NAME).app"
 	@echo "Installed: $(INSTALL_DIR)/$(APP_NAME).app"
