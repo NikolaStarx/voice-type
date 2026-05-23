@@ -42,7 +42,7 @@ enum SpeechBackend: String, CaseIterable, Codable {
     }
 }
 
-enum RecordingShortcut: String, CaseIterable, Codable {
+enum RecordingShortcutPreset: String, CaseIterable, Codable {
     case optionSpace
     case controlOptionSpace
     case rightOption
@@ -66,8 +66,84 @@ enum RecordingShortcut: String, CaseIterable, Codable {
         }
     }
 
+    var shortcut: RecordingShortcut {
+        switch self {
+        case .optionSpace:
+            return RecordingShortcut(keyCode: 49, keyName: "Space", modifiers: .option, presetID: rawValue)
+        case .controlOptionSpace:
+            return RecordingShortcut(keyCode: 49, keyName: "Space", modifiers: [.control, .option], presetID: rawValue)
+        case .rightOption:
+            return RecordingShortcut(modifierKeyCode: 61, keyName: "Right Option", modifiers: .option, presetID: rawValue)
+        case .fn:
+            return RecordingShortcut(modifierKeyCode: 63, keyName: "Fn / Globe", modifiers: .function, presetID: rawValue)
+        }
+    }
+}
+
+struct RecordingShortcutModifiers: OptionSet, Codable, Equatable {
+    let rawValue: Int
+
+    static let shift = RecordingShortcutModifiers(rawValue: 1 << 0)
+    static let control = RecordingShortcutModifiers(rawValue: 1 << 1)
+    static let option = RecordingShortcutModifiers(rawValue: 1 << 2)
+    static let command = RecordingShortcutModifiers(rawValue: 1 << 3)
+    static let function = RecordingShortcutModifiers(rawValue: 1 << 4)
+
+    var titleParts: [String] {
+        var parts: [String] = []
+        if contains(.control) { parts.append("Control") }
+        if contains(.option) { parts.append("Option") }
+        if contains(.shift) { parts.append("Shift") }
+        if contains(.command) { parts.append("Command") }
+        if contains(.function) { parts.append("Fn") }
+        return parts
+    }
+}
+
+struct RecordingShortcut: Codable, Equatable {
+    var keyCode: UInt16?
+    var keyName: String
+    var modifierKeyCode: UInt16?
+    var modifiers: RecordingShortcutModifiers
+    var presetID: String?
+
+    init(keyCode: UInt16, keyName: String, modifiers: RecordingShortcutModifiers, presetID: String? = nil) {
+        self.keyCode = keyCode
+        self.keyName = keyName
+        self.modifierKeyCode = nil
+        self.modifiers = modifiers
+        self.presetID = presetID
+    }
+
+    init(modifierKeyCode: UInt16, keyName: String, modifiers: RecordingShortcutModifiers, presetID: String? = nil) {
+        self.keyCode = nil
+        self.keyName = keyName
+        self.modifierKeyCode = modifierKeyCode
+        self.modifiers = modifiers
+        self.presetID = presetID
+    }
+
+    var title: String {
+        if keyCode == nil {
+            return keyName
+        }
+        return (modifiers.titleParts + [keyName]).joined(separator: " + ")
+    }
+
+    var menuTitle: String {
+        if let presetID,
+           let preset = RecordingShortcutPreset(rawValue: presetID) {
+            return preset.menuTitle
+        }
+        return title
+    }
+
     var holdHint: String {
         "Hold \(title) to record, release to paste"
+    }
+
+    var logValue: String {
+        presetID ?? title.replacingOccurrences(of: " ", with: "")
     }
 }
 

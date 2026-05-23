@@ -18,7 +18,7 @@ final class FnEventTap {
 
     func start() {
         guard eventTap == nil else { return }
-        VoiceTypeLogger.log("shortcutTap.start preflight listen=\(CGPreflightListenEventAccess()) shortcut=\(settings.recordingShortcut.rawValue)")
+        VoiceTypeLogger.log("shortcutTap.start preflight listen=\(CGPreflightListenEventAccess()) shortcut=\(settings.recordingShortcut.logValue)")
         guard CGPreflightListenEventAccess() else {
             startFallbackMonitor(reason: "Input Monitoring")
             postStatus(.permissionMissing("Input Monitoring"))
@@ -53,7 +53,7 @@ final class FnEventTap {
         }
         CGEvent.tapEnable(tap: eventTap, enable: true)
         postStatus(.runningSuppressed)
-        VoiceTypeLogger.log("shortcutTap.runningSuppressed shortcut=\(settings.recordingShortcut.rawValue)")
+        VoiceTypeLogger.log("shortcutTap.runningSuppressed shortcut=\(settings.recordingShortcut.logValue)")
     }
 
     func stop() {
@@ -155,7 +155,7 @@ final class FnEventTap {
     private func beginShortcut(_ shortcut: RecordingShortcut, keyCode: CGKeyCode, flags: CGEventFlags, source: String) {
         isShortcutDown = true
         activeShortcut = shortcut
-        VoiceTypeLogger.log("shortcutTap.press shortcut=\(shortcut.rawValue) source=\(source) keyCode=\(keyCode) flags=\(flags.rawValue)")
+        VoiceTypeLogger.log("shortcutTap.press shortcut=\(shortcut.logValue) source=\(source) keyCode=\(keyCode) flags=\(flags.rawValue)")
         DispatchQueue.main.async { self.onPress() }
     }
 
@@ -163,7 +163,7 @@ final class FnEventTap {
         let shortcut = activeShortcut ?? settings.recordingShortcut
         isShortcutDown = false
         activeShortcut = nil
-        VoiceTypeLogger.log("shortcutTap.release shortcut=\(shortcut.rawValue) reason=\(reason)")
+        VoiceTypeLogger.log("shortcutTap.release shortcut=\(shortcut.logValue) reason=\(reason)")
         DispatchQueue.main.async { self.onRelease() }
     }
 
@@ -173,7 +173,7 @@ final class FnEventTap {
             self?.handleFallback(event: event)
         }
         postStatus(.runningObserveOnly)
-        VoiceTypeLogger.log("shortcutTap.fallback reason=\(reason) shortcut=\(settings.recordingShortcut.rawValue)")
+        VoiceTypeLogger.log("shortcutTap.fallback reason=\(reason) shortcut=\(settings.recordingShortcut.logValue)")
         NSLog("VoiceType shortcut listener fallback mode: \(reason)")
     }
 
@@ -254,43 +254,27 @@ final class FnEventTap {
 
 private extension RecordingShortcut {
     var triggerKeyCode: CGKeyCode? {
-        switch self {
-        case .optionSpace, .controlOptionSpace:
-            return 49
-        case .rightOption, .fn:
-            return nil
-        }
+        keyCode.map { CGKeyCode($0) }
     }
 
     var isModifierOnly: Bool {
-        switch self {
-        case .rightOption, .fn:
-            return true
-        case .optionSpace, .controlOptionSpace:
-            return false
-        }
+        keyCode == nil
     }
 
     func matchesModifierKeyEvent(keyCode: CGKeyCode, flags: CGEventFlags) -> Bool {
-        switch self {
-        case .rightOption:
-            return keyCode == 61
-        case .fn:
+        guard let modifierKeyCode else { return false }
+        if modifierKeyCode == 63 {
             return keyCode == 63 || flags.contains(.maskSecondaryFn)
-        case .optionSpace, .controlOptionSpace:
-            return false
         }
+        return keyCode == modifierKeyCode
     }
 
     func matchesModifierKeyEvent(keyCode: CGKeyCode, flags: NSEvent.ModifierFlags) -> Bool {
-        switch self {
-        case .rightOption:
-            return keyCode == 61
-        case .fn:
+        guard let modifierKeyCode else { return false }
+        if modifierKeyCode == 63 {
             return keyCode == 63 || flags.contains(.function)
-        case .optionSpace, .controlOptionSpace:
-            return false
         }
+        return keyCode == modifierKeyCode
     }
 
     func cgModifiersMatch(_ flags: CGEventFlags) -> Bool {
@@ -302,25 +286,53 @@ private extension RecordingShortcut {
     }
 
     private var requiredCGFlags: CGEventFlags {
-        switch self {
-        case .optionSpace, .rightOption:
-            return [.maskAlternate]
-        case .controlOptionSpace:
-            return [.maskControl, .maskAlternate]
-        case .fn:
-            return [.maskSecondaryFn]
-        }
+        modifiers.cgFlags
     }
 
     private var requiredEventFlags: NSEvent.ModifierFlags {
-        switch self {
-        case .optionSpace, .rightOption:
-            return [.option]
-        case .controlOptionSpace:
-            return [.control, .option]
-        case .fn:
-            return [.function]
-        }
+        modifiers.eventFlags
+    }
+}
+
+extension RecordingShortcutModifiers {
+    init(cgFlags: CGEventFlags) {
+        var result: RecordingShortcutModifiers = []
+        if cgFlags.contains(.maskShift) { result.insert(.shift) }
+        if cgFlags.contains(.maskControl) { result.insert(.control) }
+        if cgFlags.contains(.maskAlternate) { result.insert(.option) }
+        if cgFlags.contains(.maskCommand) { result.insert(.command) }
+        if cgFlags.contains(.maskSecondaryFn) { result.insert(.function) }
+        self = result
+    }
+
+    init(eventFlags: NSEvent.ModifierFlags) {
+        var result: RecordingShortcutModifiers = []
+        if eventFlags.contains(.shift) { result.insert(.shift) }
+        if eventFlags.contains(.control) { result.insert(.control) }
+        if eventFlags.contains(.option) { result.insert(.option) }
+        if eventFlags.contains(.command) { result.insert(.command) }
+        if eventFlags.contains(.function) { result.insert(.function) }
+        self = result
+    }
+
+    var cgFlags: CGEventFlags {
+        var flags: CGEventFlags = []
+        if contains(.shift) { flags.insert(.maskShift) }
+        if contains(.control) { flags.insert(.maskControl) }
+        if contains(.option) { flags.insert(.maskAlternate) }
+        if contains(.command) { flags.insert(.maskCommand) }
+        if contains(.function) { flags.insert(.maskSecondaryFn) }
+        return flags
+    }
+
+    var eventFlags: NSEvent.ModifierFlags {
+        var flags: NSEvent.ModifierFlags = []
+        if contains(.shift) { flags.insert(.shift) }
+        if contains(.control) { flags.insert(.control) }
+        if contains(.option) { flags.insert(.option) }
+        if contains(.command) { flags.insert(.command) }
+        if contains(.function) { flags.insert(.function) }
+        return flags
     }
 }
 

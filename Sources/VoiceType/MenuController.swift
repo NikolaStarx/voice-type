@@ -9,6 +9,7 @@ final class MenuController: NSObject {
     private var llmWindow: LLMSettingsWindowController?
     private var sttWindow: STTSettingsWindowController?
     private var diagnosticsWindow: DiagnosticsWindowController?
+    private var shortcutRecorderWindow: ShortcutRecorderWindowController?
     private var localStatus: LocalAIStatus = .idle
     private var fnStatus: FnEventTapStatus = .idle
 
@@ -82,17 +83,36 @@ final class MenuController: NSObject {
     private func recordingShortcutMenuItem() -> NSMenuItem {
         let item = NSMenuItem(title: "Record Shortcut", action: nil, keyEquivalent: "")
         let submenu = NSMenu()
-        for shortcut in RecordingShortcut.allCases {
-            let shortcutItem = NSMenuItem(title: shortcut.menuTitle, action: #selector(selectRecordingShortcut(_:)), keyEquivalent: "")
+
+        let current = NSMenuItem(title: "Current: \(settings.recordingShortcut.title)", action: nil, keyEquivalent: "")
+        current.isEnabled = false
+        submenu.addItem(current)
+        submenu.addItem(.separator())
+
+        for preset in RecordingShortcutPreset.allCases {
+            let shortcut = preset.shortcut
+            let shortcutItem = NSMenuItem(title: preset.menuTitle, action: #selector(selectRecordingShortcut(_:)), keyEquivalent: "")
             shortcutItem.target = self
-            shortcutItem.representedObject = shortcut.rawValue
+            shortcutItem.representedObject = preset.rawValue
             shortcutItem.state = settings.recordingShortcut == shortcut ? .on : .off
             submenu.addItem(shortcutItem)
         }
+
+        if !RecordingShortcutPreset.allCases.contains(where: { $0.shortcut == settings.recordingShortcut }) {
+            let custom = NSMenuItem(title: "Custom: \(settings.recordingShortcut.title)", action: nil, keyEquivalent: "")
+            custom.state = .on
+            custom.isEnabled = false
+            submenu.addItem(custom)
+        }
+
+        submenu.addItem(.separator())
+        let record = NSMenuItem(title: "Record Shortcut...", action: #selector(recordShortcut), keyEquivalent: "")
+        record.target = self
+        submenu.addItem(record)
+
         item.submenu = submenu
         return item
     }
-
 
     private func diagnosticsMenuItem() -> NSMenuItem {
         let item = NSMenuItem(title: "Diagnostics", action: nil, keyEquivalent: "")
@@ -311,9 +331,26 @@ final class MenuController: NSObject {
 
     @objc private func selectRecordingShortcut(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String,
-              let shortcut = RecordingShortcut(rawValue: raw) else { return }
-        VoiceTypeLogger.log("menu.selectRecordingShortcut \(shortcut.rawValue)")
-        settings.recordingShortcut = shortcut
+              let preset = RecordingShortcutPreset(rawValue: raw) else { return }
+        VoiceTypeLogger.log("menu.selectRecordingShortcut \(preset.rawValue)")
+        settings.recordingShortcut = preset.shortcut
+    }
+
+    @objc private func recordShortcut() {
+        VoiceTypeLogger.log("menu.recordShortcut")
+        fnEventTap.stop()
+        let recorder = ShortcutRecorderWindowController(currentShortcut: settings.recordingShortcut)
+        recorder.onSave = { [weak self] shortcut in
+            self?.settings.recordingShortcut = shortcut
+        }
+        recorder.onClose = { [weak self, weak recorder] in
+            if self?.shortcutRecorderWindow === recorder {
+                self?.shortcutRecorderWindow = nil
+            }
+            self?.fnEventTap.start()
+        }
+        shortcutRecorderWindow = recorder
+        recorder.showWindow(nil)
     }
 
     @objc private func selectInputDevice(_ sender: NSMenuItem) {

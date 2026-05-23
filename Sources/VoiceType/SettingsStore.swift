@@ -50,14 +50,24 @@ final class SettingsStore {
 
     var recordingShortcut: RecordingShortcut {
         get {
-            guard let raw = defaults.string(forKey: Key.recordingShortcut),
-                  let value = RecordingShortcut(rawValue: raw) else {
-                return .optionSpace
+            if let data = defaults.data(forKey: Key.recordingShortcut),
+               let shortcut = try? decoder.decode(RecordingShortcut.self, from: data) {
+                return shortcut
             }
-            return value
+            if let raw = defaults.string(forKey: Key.recordingShortcut),
+               let preset = RecordingShortcutPreset(rawValue: raw) {
+                let migrated = preset.shortcut
+                if let data = try? encoder.encode(migrated) {
+                    defaults.set(data, forKey: Key.recordingShortcut)
+                }
+                return migrated
+            }
+            return RecordingShortcutPreset.optionSpace.shortcut
         }
         set {
-            defaults.set(newValue.rawValue, forKey: Key.recordingShortcut)
+            if let data = try? encoder.encode(newValue) {
+                defaults.set(data, forKey: Key.recordingShortcut)
+            }
             notify()
         }
     }
