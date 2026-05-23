@@ -17,7 +17,7 @@ final class MenuController: NSObject {
         self.coordinator = coordinator
         self.localAI = localAI
         self.fnEventTap = fnEventTap
-        self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
         configureStatusIcon()
         rebuildMenu()
@@ -31,11 +31,15 @@ final class MenuController: NSObject {
             VoiceTypeLogger.error("menu.statusIcon.missingButton")
             return
         }
+        statusItem.length = 46
         button.image = MenuController.makeStatusIcon()
         button.image?.isTemplate = true
-        button.imagePosition = .imageOnly
+        button.title = "VT"
+        button.imagePosition = .imageLeft
+        button.contentTintColor = .labelColor
         button.toolTip = "VoiceType: \(settings.recordingShortcut.holdHint)"
-        VoiceTypeLogger.log("menu.statusIcon.configured")
+        button.setAccessibilityLabel("VoiceType")
+        VoiceTypeLogger.log("menu.statusIcon.configured length=\(statusItem.length) hasImage=\(button.image != nil) title=\(button.title)")
     }
 
     private func rebuildMenu() {
@@ -482,6 +486,13 @@ final class MenuController: NSObject {
     }
 
     private static func makeStatusIcon() -> NSImage {
+        if let symbol = NSImage(systemSymbolName: "waveform", accessibilityDescription: "VoiceType") {
+            let configuration = NSImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+            let configured = symbol.withSymbolConfiguration(configuration) ?? symbol
+            configured.isTemplate = true
+            return configured
+        }
+
         let size = NSSize(width: 18, height: 18)
         let image = NSImage(size: size)
         image.lockFocus()
