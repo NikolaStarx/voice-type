@@ -16,7 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         VoiceTypeLogger.log("app.launch pid=\(ProcessInfo.processInfo.processIdentifier) bundle=\(Bundle.main.bundlePath) executable=\(Bundle.main.executableURL?.path ?? "nil") version=\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown")")
         VoiceTypeLogger.compactOldLogsIfNeeded()
-        guard continueLaunchingFromSupportedLocation() else { return }
+        guard continueLaunchingAsSingleInstance() else { return }
         PermissionsManager.shared.requestInitialPermissionsOnce()
 
         floatingPanel = FloatingPanelController()
@@ -93,23 +93,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         coordinator.injectDiagnosticText(text)
     }
 
-    private func continueLaunchingFromSupportedLocation() -> Bool {
-        let bundleURL = Bundle.main.bundleURL.standardizedFileURL
-        let staleUserInstall = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-            .appendingPathComponent("Applications/VoiceType.app", isDirectory: true)
+    private func continueLaunchingAsSingleInstance() -> Bool {
+        let currentPID = ProcessInfo.processInfo.processIdentifier
+        let currentBundleURL = Bundle.main.bundleURL.standardizedFileURL
+        let canonicalInstallURL = URL(fileURLWithPath: "/Applications/VoiceType.app", isDirectory: true)
             .standardizedFileURL
-        let canonicalInstall = URL(fileURLWithPath: "/Applications/VoiceType.app", isDirectory: true)
-            .standardizedFileURL
+        let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.codex.voicetype"
+        let existingApps = NSWorkspace.shared.runningApplications.filter { app in
+            app.bundleIdentifier == bundleIdentifier && app.processIdentifier != currentPID
+        }
 
-        guard bundleURL.path == staleUserInstall.path,
-              FileManager.default.fileExists(atPath: canonicalInstall.path) else {
+        guard currentBundleURL.path == canonicalInstallURL.path else {
+            if FileManager.default.fileExists(atPath: canonicalInstallURL.path) {
+                let opened = NSWorkspace.shared.open(canonicalInstallURL)
+                VoiceTypeLogger.error("app.nonCanonicalInstanceExit pid=\(currentPID) bundle=\(currentBundleURL.path) openedCanonical=\(opened)")
+            } else if let existing = existingApps.first {
+                existing.activate(options: [])
+                VoiceTypeLogger.error("app.nonCanonicalInstanceExit pid=\(currentPID) bundle=\(currentBundleURL.path) activatedExistingPID=\(existing.processIdentifier)")
+            } else {
+                VoiceTypeLogger.warning("app.nonCanonicalInstanceAllowed pid=\(currentPID) bundle=\(currentBundleURL.path) canonicalMissing=true")
+                return true
+            }
+            VoiceTypeLogger.flush()
+            NSApp.terminate(nil)
+            return false
+        }
+
+        guard !existingApps.isEmpty else {
             return true
         }
 
-        VoiceTypeLogger.error("app.staleUserInstallDetected bundle=\(bundleURL.path) canonical=\(canonicalInstall.path)")
-        let opened = NSWorkspace.shared.open(canonicalInstall)
-        VoiceTypeLogger.log("app.staleUserInstall.openCanonical opened=\(opened)")
-        NSApp.terminate(nil)
-        return false
+        for app in existingApps {
+            let bundlePath = app.bundleURL?.standardizedFileURL.path ?? "nil"
+            VoiceTypeLogger.warning("app.duplicateInstance.terminate pid=\(app.processIdentifier) bundle=\(bundlePath)")
+            app.terminate()
+        }
+        return true
     }
 }

@@ -35,6 +35,10 @@ enum VoiceTypeLogger {
         write(level: "ERROR", message: "\(message) error=\(error.localizedDescription)")
     }
 
+    static func flush() {
+        queue.sync {}
+    }
+
     static func readTail(maxLines: Int = 300) -> String {
         queue.sync {
             guard let data = try? Data(contentsOf: logFileURL),

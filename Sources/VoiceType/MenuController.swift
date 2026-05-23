@@ -27,10 +27,15 @@ final class MenuController: NSObject {
     }
 
     private func configureStatusIcon() {
-        guard let button = statusItem.button else { return }
+        guard let button = statusItem.button else {
+            VoiceTypeLogger.error("menu.statusIcon.missingButton")
+            return
+        }
         button.image = MenuController.makeStatusIcon()
         button.image?.isTemplate = true
+        button.imagePosition = .imageOnly
         button.toolTip = "VoiceType: \(settings.recordingShortcut.holdHint)"
+        VoiceTypeLogger.log("menu.statusIcon.configured")
     }
 
     private func rebuildMenu() {
@@ -480,7 +485,7 @@ final class MenuController: NSObject {
         let size = NSSize(width: 18, height: 18)
         let image = NSImage(size: size)
         image.lockFocus()
-        NSColor.labelColor.setStroke()
+        NSColor.black.setFill()
         let weights: [CGFloat] = [0.45, 0.75, 1.0, 0.7, 0.5]
         let barWidth: CGFloat = 2
         let gap: CGFloat = 1.7
