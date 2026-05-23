@@ -29,7 +29,7 @@ final class MenuController: NSObject {
         guard let button = statusItem.button else { return }
         button.image = MenuController.makeStatusIcon()
         button.image?.isTemplate = true
-        button.toolTip = "VoiceType: hold Fn to dictate"
+        button.toolTip = "VoiceType: \(settings.recordingShortcut.holdHint)"
     }
 
     private func rebuildMenu() {
@@ -40,12 +40,13 @@ final class MenuController: NSObject {
         title.isEnabled = false
         menu.addItem(title)
 
-        let hint = NSMenuItem(title: "Hold Fn to record, release to paste", action: nil, keyEquivalent: "")
+        let hint = NSMenuItem(title: settings.recordingShortcut.holdHint, action: nil, keyEquivalent: "")
         hint.isEnabled = false
         menu.addItem(hint)
         menu.addItem(.separator())
 
         menu.addItem(languageMenuItem())
+        menu.addItem(recordingShortcutMenuItem())
         menu.addItem(backendMenuItem())
         menu.addItem(inputDeviceMenuItem())
         menu.addItem(localAIMenuItem())
@@ -77,6 +78,21 @@ final class MenuController: NSObject {
         item.submenu = submenu
         return item
     }
+
+    private func recordingShortcutMenuItem() -> NSMenuItem {
+        let item = NSMenuItem(title: "Record Shortcut", action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        for shortcut in RecordingShortcut.allCases {
+            let shortcutItem = NSMenuItem(title: shortcut.menuTitle, action: #selector(selectRecordingShortcut(_:)), keyEquivalent: "")
+            shortcutItem.target = self
+            shortcutItem.representedObject = shortcut.rawValue
+            shortcutItem.state = settings.recordingShortcut == shortcut ? .on : .off
+            submenu.addItem(shortcutItem)
+        }
+        item.submenu = submenu
+        return item
+    }
+
 
     private func diagnosticsMenuItem() -> NSMenuItem {
         let item = NSMenuItem(title: "Diagnostics", action: nil, keyEquivalent: "")
@@ -186,7 +202,7 @@ final class MenuController: NSObject {
         request.target = self
         submenu.addItem(request)
 
-        let retry = NSMenuItem(title: "Restart Fn Listener", action: #selector(restartFnListener), keyEquivalent: "")
+        let retry = NSMenuItem(title: "Restart Shortcut Listener", action: #selector(restartFnListener), keyEquivalent: "")
         retry.target = self
         submenu.addItem(retry)
 
@@ -258,6 +274,7 @@ final class MenuController: NSObject {
     }
 
     @objc private func settingsChanged() {
+        configureStatusIcon()
         rebuildMenu()
     }
 
@@ -290,6 +307,13 @@ final class MenuController: NSObject {
         if let model = backend.localModel {
             localAI.prepare(model: model)
         }
+    }
+
+    @objc private func selectRecordingShortcut(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let shortcut = RecordingShortcut(rawValue: raw) else { return }
+        VoiceTypeLogger.log("menu.selectRecordingShortcut \(shortcut.rawValue)")
+        settings.recordingShortcut = shortcut
     }
 
     @objc private func selectInputDevice(_ sender: NSMenuItem) {

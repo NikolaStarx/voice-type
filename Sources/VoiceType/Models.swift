@@ -42,6 +42,35 @@ enum SpeechBackend: String, CaseIterable, Codable {
     }
 }
 
+enum RecordingShortcut: String, CaseIterable, Codable {
+    case optionSpace
+    case controlOptionSpace
+    case rightOption
+    case fn
+
+    var title: String {
+        switch self {
+        case .optionSpace: return "Option + Space"
+        case .controlOptionSpace: return "Control + Option + Space"
+        case .rightOption: return "Right Option"
+        case .fn: return "Fn / Globe"
+        }
+    }
+
+    var menuTitle: String {
+        switch self {
+        case .optionSpace: return "Option + Space (Recommended)"
+        case .controlOptionSpace: return title
+        case .rightOption: return title
+        case .fn: return title
+        }
+    }
+
+    var holdHint: String {
+        "Hold \(title) to record, release to paste"
+    }
+}
+
 enum LocalASRModel: String, CaseIterable, Codable {
     case qwen06
     case qwen17
@@ -267,11 +296,11 @@ enum FnEventTapStatus: Equatable {
 
     var title: String {
         switch self {
-        case .idle: return "Fn Listener: Idle"
-        case .runningSuppressed: return "Fn Listener: Active"
-        case .runningObserveOnly: return "Fn Listener: Fallback Mode"
-        case .permissionMissing(let message): return "Fn Listener: Permission Needed (\(message))"
-        case .failed(let message): return "Fn Listener: Failed (\(message))"
+        case .idle: return "Shortcut Listener: Idle"
+        case .runningSuppressed: return "Shortcut Listener: Active"
+        case .runningObserveOnly: return "Shortcut Listener: Fallback Mode"
+        case .permissionMissing(let message): return "Shortcut Listener: Permission Needed (\(message))"
+        case .failed(let message): return "Shortcut Listener: Failed (\(message))"
         }
     }
 }

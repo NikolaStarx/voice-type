@@ -10,6 +10,7 @@ final class SettingsStore {
     private enum Key {
         static let language = "language"
         static let backend = "speechBackend"
+        static let recordingShortcut = "recordingShortcut"
         static let llm = "llmSettings"
         static let cloudSTT = "cloudSTTSettings"
         static let localAutoPrepare = "localAutoPrepare"
@@ -43,6 +44,20 @@ final class SettingsStore {
         }
         set {
             defaults.set(newValue.rawValue, forKey: Key.backend)
+            notify()
+        }
+    }
+
+    var recordingShortcut: RecordingShortcut {
+        get {
+            guard let raw = defaults.string(forKey: Key.recordingShortcut),
+                  let value = RecordingShortcut(rawValue: raw) else {
+                return .optionSpace
+            }
+            return value
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: Key.recordingShortcut)
             notify()
         }
     }
