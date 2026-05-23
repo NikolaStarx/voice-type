@@ -434,4 +434,5 @@ extension Notification.Name {
     static let voiceTypeInjectionFailed = Notification.Name("VoiceTypeInjectionFailed")
     static let voiceTypePipelineStatusChanged = Notification.Name("VoiceTypePipelineStatusChanged")
     static let voiceTypeRecordingStateChanged = Notification.Name("VoiceTypeRecordingStateChanged")
+    static let voiceTypeOpenMenuRequested = Notification.Name("VoiceTypeOpenMenuRequested")
 }

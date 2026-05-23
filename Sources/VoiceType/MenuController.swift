@@ -17,13 +17,14 @@ final class MenuController: NSObject {
         self.coordinator = coordinator
         self.localAI = localAI
         self.fnEventTap = fnEventTap
-        self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         super.init()
         configureStatusIcon()
         rebuildMenu()
         NotificationCenter.default.addObserver(self, selector: #selector(settingsChanged), name: .voiceTypeSettingsChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(localAIStatusChanged(_:)), name: .voiceTypeLocalAIStatusChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(fnStatusChanged(_:)), name: .voiceTypeFnEventTapStatusChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(openMenuRequested), name: .voiceTypeOpenMenuRequested, object: nil)
     }
 
     private func configureStatusIcon() {
@@ -31,15 +32,14 @@ final class MenuController: NSObject {
             VoiceTypeLogger.error("menu.statusIcon.missingButton")
             return
         }
-        statusItem.length = 46
         button.image = MenuController.makeStatusIcon()
         button.image?.isTemplate = true
-        button.title = "VT"
-        button.imagePosition = .imageLeft
-        button.contentTintColor = .labelColor
+        button.title = ""
+        button.imagePosition = .imageOnly
+        button.contentTintColor = nil
         button.toolTip = "VoiceType: \(settings.recordingShortcut.holdHint)"
         button.setAccessibilityLabel("VoiceType")
-        VoiceTypeLogger.log("menu.statusIcon.configured length=\(statusItem.length) hasImage=\(button.image != nil) title=\(button.title)")
+        VoiceTypeLogger.log("menu.statusIcon.configured length=\(statusItem.length) hasImage=\(button.image != nil) title=\(button.title) mode=iconOnly")
     }
 
     private func rebuildMenu() {
@@ -73,6 +73,15 @@ final class MenuController: NSObject {
             item.target = self
         }
         statusItem.menu = menu
+    }
+
+    @objc private func openMenuRequested() {
+        VoiceTypeLogger.log("menu.openRequested")
+        guard let menu = statusItem.menu else {
+            VoiceTypeLogger.error("menu.openRequested.noMenu")
+            return
+        }
+        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
     }
 
     private func languageMenuItem() -> NSMenuItem {
@@ -486,13 +495,6 @@ final class MenuController: NSObject {
     }
 
     private static func makeStatusIcon() -> NSImage {
-        if let symbol = NSImage(systemSymbolName: "waveform", accessibilityDescription: "VoiceType") {
-            let configuration = NSImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
-            let configured = symbol.withSymbolConfiguration(configuration) ?? symbol
-            configured.isTemplate = true
-            return configured
-        }
-
         let size = NSSize(width: 18, height: 18)
         let image = NSImage(size: size)
         image.lockFocus()

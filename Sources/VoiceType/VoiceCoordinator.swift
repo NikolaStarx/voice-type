@@ -98,14 +98,16 @@ final class VoiceCoordinator {
         activeBackend = nil
         pauseBatcher = nil
 
-        let minimumHold: TimeInterval = 0.12
-        if let start = lastHoldStartedAt, Date().timeIntervalSince(start) < minimumHold {
+        let menuTapHoldThreshold: TimeInterval = 0.30
+        if let start = lastHoldStartedAt, Date().timeIntervalSince(start) < menuTapHoldThreshold {
+            let held = Date().timeIntervalSince(start)
             session.cancel()
             retire(session)
             postRecordingState(active: false, backend: releasedBackend)
             pipeline.setRecordingActive(false)
             floatingPanel.hide()
-            VoiceTypeLogger.log("coordinator.endHold.tooShort held=\(Date().timeIntervalSince(start))")
+            VoiceTypeLogger.log("coordinator.endHold.shortTapOpenMenu held=\(held)")
+            NotificationCenter.default.post(name: .voiceTypeOpenMenuRequested, object: nil)
             return
         }
 
