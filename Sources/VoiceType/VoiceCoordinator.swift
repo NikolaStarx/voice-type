@@ -122,9 +122,21 @@ final class VoiceCoordinator {
                 let noNewRecording = self.activeSessionID == nil || self.activeSessionID == releasedSessionID
                 VoiceTypeLogger.log("coordinator.captureStopped session=\(releasedSessionID?.uuidString ?? "nil") appleChars=\(appleText.count) audio=\(audioURL?.path ?? "nil") noNewRecording=\(noNewRecording)")
                 if let releasedPauseBatcher, releasedBackend == .appleSpeech {
-                    releasedPauseBatcher.flushFinal(appleText)
+                    let submittedFinalBatch = releasedPauseBatcher.flushFinal(appleText)
                     if noNewRecording {
                         self.pipeline.setRecordingActive(false)
+                    }
+                    if !releasedPauseBatcher.hasSubmittedBatches {
+                        VoiceTypeLogger.warning("coordinator.pauseBatcher.noOutput.fallbackSubmit session=\(releasedSessionID?.uuidString ?? "nil")")
+                        self.pipeline.submit(
+                            appleText: appleText,
+                            audioURL: audioURL,
+                            backend: releasedBackend,
+                            language: releasedLanguage
+                        )
+                    } else if !submittedFinalBatch {
+                        VoiceTypeLogger.log("coordinator.pauseBatcher.noFinalDelta.hideHUD session=\(releasedSessionID?.uuidString ?? "nil")")
+                        NotificationCenter.default.post(name: .voiceTypePipelineStatusChanged, object: VoiceTypePipelineStatus.done)
                     }
                     return
                 }

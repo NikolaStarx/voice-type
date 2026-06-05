@@ -11,6 +11,7 @@ final class PauseBatchSegmenter {
     private var lastFlushAt = Date.distantPast
     private let voiceThreshold: Float = 0.018
     private let minimumFlushInterval: TimeInterval = 0.35
+    private(set) var hasSubmittedBatches = false
 
     init(llmSettings: LLMSettings, submit: @escaping (String, LLMSettings) -> Void) {
         self.llmSettings = llmSettings
@@ -38,25 +39,29 @@ final class PauseBatchSegmenter {
         flush(reason: "pause")
     }
 
-    func flushFinal(_ finalTranscript: String) {
+    @discardableResult
+    func flushFinal(_ finalTranscript: String) -> Bool {
         VoiceTypeLogger.log("pauseBatch.flushFinal finalChars=\(finalTranscript.count)")
         let trimmed = finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
             latestTranscript = trimmed
         }
-        flush(reason: "final")
+        return flush(reason: "final")
     }
 
-    private func flush(reason: String) {
+    @discardableResult
+    private func flush(reason: String) -> Bool {
         let delta = unflushedDelta().trimmingCharacters(in: .whitespacesAndNewlines)
         guard delta.count >= 2 else {
             VoiceTypeLogger.log("pauseBatch.flush.skip reason=\(reason) deltaChars=\(delta.count) latestChars=\(latestTranscript.count) flushedChars=\(lastFlushedTranscript.count)")
-            return
+            return false
         }
         lastFlushedTranscript = latestTranscript
         lastFlushAt = Date()
+        hasSubmittedBatches = true
         VoiceTypeLogger.log("pauseBatch.flush reason=\(reason) threshold=\(pauseThreshold) chars=\(delta.count) text=\(delta)")
         submit(delta, llmSettings)
+        return true
     }
 
     private func unflushedDelta() -> String {

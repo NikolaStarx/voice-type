@@ -74,7 +74,30 @@ final class DictationPipeline {
         switch job.backend {
         case .appleSpeech:
             postStatus(.transcribing("Finalizing..."))
-            handleTranscript(job.appleText, for: job)
+            let trimmedAppleText = job.appleText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedAppleText.isEmpty {
+                handleTranscript(trimmedAppleText, for: job)
+                return
+            }
+            guard let audioURL = job.audioURL else {
+                VoiceTypeLogger.warning("pipeline.appleSpeech.empty.noAudio sequence=\(job.sequence)")
+                handleTranscript("", for: job)
+                return
+            }
+            let fallbackModel = LocalASRModel.qwen06
+            VoiceTypeLogger.warning("pipeline.appleSpeech.empty.fallbackLocal sequence=\(job.sequence) model=\(fallbackModel.repoID) audio=\(audioURL.path)")
+            postStatus(.transcribing("Transcribing locally..."))
+            localAI.transcribe(audioURL: audioURL, model: fallbackModel, language: job.language) { [weak self] result in
+                switch result {
+                case .success(let text):
+                    VoiceTypeLogger.log("pipeline.appleSpeech.fallbackLocal.success sequence=\(job.sequence) chars=\(text.count)")
+                    self?.handleTranscript(text, for: job)
+                case .failure(let error):
+                    VoiceTypeLogger.error("pipeline.appleSpeech.fallbackLocal.failure sequence=\(job.sequence)", error: error)
+                    self?.postStatus(.failed("No speech detected"))
+                    self?.injectionScheduler.finishJob(sequence: job.sequence)
+                }
+            }
         case .localQwen06, .localQwen17:
             guard let model = job.backend.localModel, let audioURL = job.audioURL else {
                 VoiceTypeLogger.warning("pipeline.localSTT.noAudio sequence=\(job.sequence)")
@@ -82,7 +105,7 @@ final class DictationPipeline {
                 injectionScheduler.finishJob(sequence: job.sequence)
                 return
             }
-            postStatus(.transcribing("Preparing \(model.title)..."))
+            postStatus(.transcribing("Transcribing locally..."))
             localAI.transcribe(audioURL: audioURL, model: model, language: job.language) { [weak self] result in
                 switch result {
                 case .success(let text):
@@ -205,9 +228,12 @@ final class DictationPipeline {
 
                     let timeout = self.softTimeout(for: settings.activeProfile.reasoningEffort, text: segment.text)
                     DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + timeout) {
-                        VoiceTypeLogger.warning("pipeline.refine.timeout sequence=\(job.sequence) segment=\(index) timeout=\(timeout)")
-                        task?.cancel()
-                        complete(with: segment.text)
+                        coordinationQueue.async {
+                            guard !completed.contains(index) else { return }
+                            VoiceTypeLogger.warning("pipeline.refine.timeout sequence=\(job.sequence) segment=\(index) timeout=\(timeout)")
+                            task?.cancel()
+                            complete(with: segment.text)
+                        }
                     }
                 }
             }

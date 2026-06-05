@@ -320,7 +320,7 @@ struct LLMSettings: Codable, Equatable {
         enabled: false,
         apiBaseURL: "http://localhost:11434/v1",
         apiKey: "",
-        model: "qwen2.5:7b",
+        model: "qwen3.5:2b",
         activeProfileID: "oral",
         profiles: LLMProfile.defaultProfiles
     )

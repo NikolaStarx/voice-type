@@ -18,15 +18,17 @@ final class LLMRefiner {
         }
 
         let profile = settings.activeProfile
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "model": settings.model,
             "temperature": profile.id == "formal" ? 0.2 : 0,
-            "reasoning_effort": profile.reasoningEffort.rawValue,
             "messages": [
                 ["role": "system", "content": profile.systemPrompt],
                 ["role": "user", "content": text]
             ]
         ]
+        if let reasoningEffort = apiReasoningEffort(for: profile.reasoningEffort) {
+            payload["reasoning_effort"] = reasoningEffort
+        }
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
@@ -36,7 +38,7 @@ final class LLMRefiner {
             return nil
         }
 
-        VoiceTypeLogger.log("llm.refine.request url=\(url.absoluteString) model=\(settings.model) profile=\(profile.name) effort=\(profile.reasoningEffort.rawValue) chars=\(text.count)")
+        VoiceTypeLogger.log("llm.refine.request url=\(url.absoluteString) model=\(settings.model) profile=\(profile.name) effort=\(profile.reasoningEffort.rawValue) apiEffort=\(payload["reasoning_effort"] ?? "omitted") chars=\(text.count)")
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
             if let error {
                 VoiceTypeLogger.error("llm.refine.network.failed", error: error)
@@ -48,6 +50,13 @@ final class LLMRefiner {
                   let data else {
                 let message = data.flatMap { String(data: $0, encoding: .utf8) } ?? "No response body"
                 let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                if status == 400,
+                   payload["reasoning_effort"] != nil,
+                   Self.looksLikeReasoningParameterFailure(message) {
+                    VoiceTypeLogger.warning("llm.refine.reasoningUnsupported.retryWithoutReasoning status=\(status) body=\(message.prefix(500))")
+                    self.refineWithoutReasoning(text: text, settings: settings, completion: completion)
+                    return
+                }
                 VoiceTypeLogger.error("llm.refine.http.failed status=\(status) body=\(message.prefix(500))")
                 completion(.failure(NSError.voiceType("LLM request failed: \(message)")))
                 return
@@ -70,6 +79,81 @@ final class LLMRefiner {
         }
         task.resume()
         return task
+    }
+
+    private func refineWithoutReasoning(text: String, settings: LLMSettings, completion: @escaping (Result<String, Error>) -> Void) {
+        var retrySettings = settings
+        let profile = settings.activeProfile
+        let retryProfile = LLMProfile(
+            id: profile.id,
+            name: profile.name,
+            systemPrompt: profile.systemPrompt,
+            reasoningEffort: profile.reasoningEffort,
+            segmentationStrategy: profile.segmentationStrategy,
+            pauseThresholdSeconds: profile.pauseThresholdSeconds
+        )
+        retrySettings.profiles = settings.profiles.map { existing in
+            existing.id == profile.id ? retryProfile : existing
+        }
+
+        guard let url = endpoint(base: retrySettings.apiBaseURL, path: "chat/completions") else {
+            completion(.failure(NSError.voiceType("Invalid LLM API Base URL")))
+            return
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = timeout(for: retrySettings.activeProfile.reasoningEffort)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if !retrySettings.apiKey.isEmpty {
+            request.setValue("Bearer \(retrySettings.apiKey)", forHTTPHeaderField: "Authorization")
+        }
+        let retryPayload: [String: Any] = [
+            "model": retrySettings.model,
+            "temperature": retryProfile.id == "formal" ? 0.2 : 0,
+            "messages": [
+                ["role": "system", "content": retryProfile.systemPrompt],
+                ["role": "user", "content": text]
+            ]
+        ]
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: retryPayload, options: [])
+        } catch {
+            VoiceTypeLogger.error("llm.refine.retry.encode.failed", error: error)
+            completion(.failure(error))
+            return
+        }
+
+        VoiceTypeLogger.log("llm.refine.retry.request url=\(url.absoluteString) model=\(retrySettings.model) profile=\(retryProfile.name) chars=\(text.count)")
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error {
+                VoiceTypeLogger.error("llm.refine.retry.network.failed", error: error)
+                completion(.failure(error))
+                return
+            }
+            guard let http = response as? HTTPURLResponse,
+                  (200..<300).contains(http.statusCode),
+                  let data else {
+                let message = data.flatMap { String(data: $0, encoding: .utf8) } ?? "No response body"
+                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                VoiceTypeLogger.error("llm.refine.retry.http.failed status=\(status) body=\(message.prefix(500))")
+                completion(.failure(NSError.voiceType("LLM retry failed: \(message)")))
+                return
+            }
+            VoiceTypeLogger.log("llm.refine.retry.response status=\(http.statusCode) bytes=\(data.count)")
+            do {
+                let object = try JSONSerialization.jsonObject(with: data)
+                if let text = Self.extractChatText(from: object) {
+                    VoiceTypeLogger.log("llm.refine.retry.extract.success chars=\(text.count) text=\(text)")
+                    completion(.success(text.trimmingCharacters(in: .whitespacesAndNewlines)))
+                } else {
+                    VoiceTypeLogger.error("llm.refine.retry.extract.failed")
+                    completion(.failure(NSError.voiceType("LLM response did not contain text")))
+                }
+            } catch {
+                VoiceTypeLogger.error("llm.refine.retry.decode.failed", error: error)
+                completion(.failure(error))
+            }
+        }.resume()
     }
 
     static func extractChatText(from object: Any) -> String? {
@@ -97,6 +181,20 @@ final class LLMRefiner {
         case .medium: return 24
         case .high: return 40
         }
+    }
+
+    private func apiReasoningEffort(for effort: ReasoningEffort) -> String? {
+        switch effort {
+        case .minimal:
+            return "none"
+        case .low, .medium, .high:
+            return effort.rawValue
+        }
+    }
+
+    private static func looksLikeReasoningParameterFailure(_ message: String) -> Bool {
+        let lowercased = message.lowercased()
+        return lowercased.contains("reasoning") || lowercased.contains("reasoning_effort")
     }
 }
 
