@@ -193,37 +193,38 @@ final class DictationPipeline {
                     running += 1
                     VoiceTypeLogger.log("pipeline.refine.request sequence=\(job.sequence) segment=\(index)/\(segments.count) chars=\(segment.text.count) text=\(segment.text)")
 
-                    func complete(with text: String) {
-                        coordinationQueue.async {
-                            guard !completed.contains(index) else { return }
-                            completed.insert(index)
-                            VoiceTypeLogger.log("pipeline.refine.complete sequence=\(job.sequence) segment=\(index) chars=\(text.count)")
-                            self.postStatus(.inserting)
-                            self.injectionScheduler.enqueue(
-                                text: text + segment.suffix,
-                                sequence: job.sequence,
-                                segmentIndex: index,
-                                segmentCount: segments.count
-                            )
-                            running -= 1
-                            if nextIndex < segments.count {
-                                startMore()
-                            }
+                    func completeOnQueue(with text: String) {
+                        guard !completed.contains(index) else { return }
+                        completed.insert(index)
+                        VoiceTypeLogger.log("pipeline.refine.complete sequence=\(job.sequence) segment=\(index) chars=\(text.count)")
+                        self.postStatus(.inserting)
+                        self.injectionScheduler.enqueue(
+                            text: text + segment.suffix,
+                            sequence: job.sequence,
+                            segmentIndex: index,
+                            segmentCount: segments.count
+                        )
+                        running -= 1
+                        if nextIndex < segments.count {
+                            startMore()
                         }
                     }
 
                     var task: URLSessionDataTask?
                     task = self.llmRefiner.refine(text: segment.text, settings: settings) { result in
-                        let refined: String
-                        switch result {
-                        case .success(let value):
-                            let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                            refined = clean.isEmpty ? segment.text : clean
-                        case .failure(let error):
-                            VoiceTypeLogger.error("pipeline.refine.failure sequence=\(job.sequence) segment=\(index)", error: error)
-                            refined = segment.text
+                        coordinationQueue.async {
+                            guard !completed.contains(index) else { return }
+                            let refined: String
+                            switch result {
+                            case .success(let value):
+                                let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                                refined = clean.isEmpty ? segment.text : clean
+                            case .failure(let error):
+                                VoiceTypeLogger.error("pipeline.refine.failure sequence=\(job.sequence) segment=\(index)", error: error)
+                                refined = segment.text
+                            }
+                            completeOnQueue(with: refined)
                         }
-                        complete(with: refined)
                     }
 
                     let timeout = self.softTimeout(for: settings.activeProfile.reasoningEffort, text: segment.text)
@@ -232,7 +233,7 @@ final class DictationPipeline {
                             guard !completed.contains(index) else { return }
                             VoiceTypeLogger.warning("pipeline.refine.timeout sequence=\(job.sequence) segment=\(index) timeout=\(timeout)")
                             task?.cancel()
-                            complete(with: segment.text)
+                            completeOnQueue(with: segment.text)
                         }
                     }
                 }

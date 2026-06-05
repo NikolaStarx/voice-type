@@ -26,7 +26,7 @@ final class LLMRefiner {
                 ["role": "user", "content": text]
             ]
         ]
-        if let reasoningEffort = apiReasoningEffort(for: profile.reasoningEffort) {
+        if let reasoningEffort = apiReasoningEffort(for: profile.reasoningEffort, settings: settings) {
             payload["reasoning_effort"] = reasoningEffort
         }
 
@@ -183,7 +183,18 @@ final class LLMRefiner {
         }
     }
 
-    private func apiReasoningEffort(for effort: ReasoningEffort) -> String? {
+    private func apiReasoningEffort(for effort: ReasoningEffort, settings: LLMSettings) -> String? {
+        if isLocalOllama(baseURL: settings.apiBaseURL) {
+            switch effort {
+            case .minimal, .low:
+                return "none"
+            case .medium:
+                return "low"
+            case .high:
+                return "medium"
+            }
+        }
+
         switch effort {
         case .minimal:
             return "none"
@@ -195,6 +206,14 @@ final class LLMRefiner {
     private static func looksLikeReasoningParameterFailure(_ message: String) -> Bool {
         let lowercased = message.lowercased()
         return lowercased.contains("reasoning") || lowercased.contains("reasoning_effort")
+    }
+
+    private func isLocalOllama(baseURL: String) -> Bool {
+        guard let url = URL(string: baseURL.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let host = url.host?.lowercased() else {
+            return false
+        }
+        return host == "localhost" || host == "127.0.0.1" || host == "::1"
     }
 }
 
