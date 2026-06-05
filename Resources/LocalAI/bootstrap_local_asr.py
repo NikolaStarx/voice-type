@@ -97,7 +97,8 @@ print(json.dumps(HfApi().list_repo_files(repo_id={repo_id!r})))
                 continue
             target = model_dir / file_name
             target.parent.mkdir(parents=True, exist_ok=True)
-            if target.exists() and target.stat().st_size > 0:
+            partial_marker = target.with_name(target.name + ".aria2")
+            if target.exists() and target.stat().st_size > 0 and not partial_marker.exists():
                 continue
             url = f"https://huggingface.co/{repo_id}/resolve/main/{file_name}"
             run([
@@ -106,6 +107,12 @@ print(json.dumps(HfApi().list_repo_files(repo_id={repo_id!r})))
                 "--max-connection-per-server=16",
                 "--split=16",
                 "--min-split-size=1M",
+                "--connect-timeout=15",
+                "--timeout=30",
+                "--max-tries=8",
+                "--retry-wait=3",
+                "--lowest-speed-limit=20K",
+                "--summary-interval=10",
                 "--auto-file-renaming=false",
                 "--allow-overwrite=true",
                 "--dir", str(target.parent),
@@ -133,6 +140,11 @@ snapshot_download(
 
 def model_ready(model_dir: Path) -> bool:
     if not (model_dir / "config.json").exists():
+        return False
+
+    partials = sorted(path.name for path in model_dir.glob("*.aria2"))
+    if partials:
+        print(f"model download partial markers present: {', '.join(partials[:8])}", flush=True)
         return False
 
     index = model_dir / "model.safetensors.index.json"

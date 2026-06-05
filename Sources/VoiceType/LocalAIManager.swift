@@ -33,6 +33,12 @@ final class LocalAIManager {
 
     func transcribe(audioURL: URL, model: LocalASRModel, language: LanguageOption, completion: @escaping (Result<String, Error>) -> Void) {
         VoiceTypeLogger.log("localAI.transcribe.request model=\(model.repoID) language=\(language.rawValue) audio=\(audioURL.path)")
+        if isModelPrepared(model) {
+            VoiceTypeLogger.log("localAI.prepare.skipForTranscribe model=\(model.repoID)")
+            startServerAndTranscribe(audioURL: audioURL, model: model, language: language, completion: completion)
+            return
+        }
+
         prepare(model: model) { [weak self] result in
             guard let self else { return }
             switch result {
@@ -40,15 +46,7 @@ final class LocalAIManager {
                 VoiceTypeLogger.error("localAI.prepare.failedForTranscribe model=\(model.repoID)", error: error)
                 completion(.failure(error))
             case .success:
-                self.startServerIfNeeded()
-                self.waitForServer(timeout: 45) { ready in
-                    guard ready else {
-                        VoiceTypeLogger.error("localAI.server.notReady timeout=45")
-                        completion(.failure(NSError.voiceType("Local ASR server did not become ready")))
-                        return
-                    }
-                    self.performTranscription(audioURL: audioURL, model: model, language: language, completion: completion)
-                }
+                self.startServerAndTranscribe(audioURL: audioURL, model: model, language: language, completion: completion)
             }
         }
     }
@@ -70,6 +68,13 @@ final class LocalAIManager {
 
     private func prepare(model: LocalASRModel, completion: @escaping (Result<Void, Error>) -> Void) {
         queue.async {
+            if self.isModelPrepared(model) {
+                VoiceTypeLogger.log("localAI.prepare.skipAlreadyReady model=\(model.repoID)")
+                self.postStatus(.ready("\(model.title) ready"))
+                completion(.success(()))
+                return
+            }
+
             if self.preparingModels.contains(model) {
                 VoiceTypeLogger.log("localAI.prepare.alreadyRunning model=\(model.repoID)")
                 self.waitForModel(model, completion: completion)
@@ -123,6 +128,18 @@ final class LocalAIManager {
         }
     }
 
+    private func startServerAndTranscribe(audioURL: URL, model: LocalASRModel, language: LanguageOption, completion: @escaping (Result<String, Error>) -> Void) {
+        startServerIfNeeded()
+        waitForServer(timeout: 45) { ready in
+            guard ready else {
+                VoiceTypeLogger.error("localAI.server.notReady timeout=45")
+                completion(.failure(NSError.voiceType("Local ASR server did not become ready")))
+                return
+            }
+            self.performTranscription(audioURL: audioURL, model: model, language: language, completion: completion)
+        }
+    }
+
     private func waitForModel(_ model: LocalASRModel, completion: @escaping (Result<Void, Error>) -> Void) {
         queue.asyncAfter(deadline: .now() + 2) {
             if self.preparingModels.contains(model) {
@@ -133,6 +150,70 @@ final class LocalAIManager {
                 completion(.success(()))
             }
         }
+    }
+
+    private func modelDirectory(for model: LocalASRModel) -> URL {
+        supportDirectory
+            .appendingPathComponent("models", isDirectory: true)
+            .appendingPathComponent(model.folderName, isDirectory: true)
+    }
+
+    private func isModelPrepared(_ model: LocalASRModel) -> Bool {
+        let modelDirectory = modelDirectory(for: model)
+        guard FileManager.default.fileExists(atPath: modelDirectory.appendingPathComponent("config.json").path) else {
+            return false
+        }
+
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: modelDirectory,
+            includingPropertiesForKeys: [.fileSizeKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        let partials = files.filter { $0.pathExtension == "aria2" }
+        if !partials.isEmpty {
+            VoiceTypeLogger.warning("localAI.model.notReady partialMarkers model=\(model.repoID) files=\(partials.map(\.lastPathComponent).joined(separator: ","))")
+            return false
+        }
+
+        let indexURL = modelDirectory.appendingPathComponent("model.safetensors.index.json")
+        if FileManager.default.fileExists(atPath: indexURL.path) {
+            guard let data = try? Data(contentsOf: indexURL),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let weightMap = object["weight_map"] as? [String: Any] else {
+                VoiceTypeLogger.warning("localAI.model.notReady indexUnreadable model=\(model.repoID)")
+                return false
+            }
+
+            let expected = Set(weightMap.values.compactMap { $0 as? String })
+            guard !expected.isEmpty else {
+                VoiceTypeLogger.warning("localAI.model.notReady indexEmpty model=\(model.repoID)")
+                return false
+            }
+
+            for name in expected {
+                let weightURL = modelDirectory.appendingPathComponent(name)
+                if fileSize(at: weightURL) == 0 {
+                    VoiceTypeLogger.warning("localAI.model.notReady missingWeight model=\(model.repoID) file=\(name)")
+                    return false
+                }
+            }
+            return true
+        }
+
+        let safetensors = files.filter { $0.pathExtension == "safetensors" }
+        guard !safetensors.isEmpty else {
+            VoiceTypeLogger.warning("localAI.model.notReady missingWeights model=\(model.repoID)")
+            return false
+        }
+        return safetensors.allSatisfy { fileSize(at: $0) > 0 }
+    }
+
+    private func fileSize(at url: URL) -> UInt64 {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = attributes[.size] as? NSNumber else {
+            return 0
+        }
+        return size.uint64Value
     }
 
     private func startServerIfNeeded() {
