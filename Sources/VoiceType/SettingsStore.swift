@@ -85,6 +85,25 @@ final class SettingsStore {
             if !settings.profiles.contains(where: { $0.id == settings.activeProfileID }) {
                 settings.activeProfileID = settings.profiles.first?.id ?? "oral"
             }
+            var migratedProfileAPI = false
+            for index in settings.profiles.indices {
+                if settings.profiles[index].apiBaseURL == nil {
+                    settings.profiles[index].apiBaseURL = settings.apiBaseURL
+                    migratedProfileAPI = true
+                }
+                if settings.profiles[index].apiKey == nil {
+                    settings.profiles[index].apiKey = settings.apiKey
+                    migratedProfileAPI = true
+                }
+                if settings.profiles[index].model == nil {
+                    settings.profiles[index].model = settings.model
+                    migratedProfileAPI = true
+                }
+            }
+            if migratedProfileAPI, let migratedData = try? encoder.encode(settings) {
+                defaults.set(migratedData, forKey: Key.llm)
+                VoiceTypeLogger.log("settings.llm.migratedProfileAPI profiles=\(settings.profiles.count)")
+            }
             return settings
         }
         set {

@@ -3,30 +3,33 @@ import Foundation
 final class LLMRefiner {
     @discardableResult
     func refine(text: String, settings: LLMSettings, completion: @escaping (Result<String, Error>) -> Void) -> URLSessionDataTask? {
-        guard let url = endpoint(base: settings.apiBaseURL, path: "chat/completions") else {
-            VoiceTypeLogger.error("llm.refine.invalidBase base=\(settings.apiBaseURL)")
+        let profile = settings.activeProfile
+        let apiBaseURL = settings.activeAPIBaseURL
+        let apiKey = settings.activeAPIKey
+        let model = settings.activeModel
+        guard let url = endpoint(base: apiBaseURL, path: "chat/completions") else {
+            VoiceTypeLogger.error("llm.refine.invalidBase base=\(apiBaseURL) profile=\(profile.name)")
             completion(.failure(NSError.voiceType("Invalid LLM API Base URL")))
             return nil
         }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = timeout(for: settings.activeProfile.reasoningEffort)
+        request.timeoutInterval = timeout(for: profile.reasoningEffort)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if !settings.apiKey.isEmpty {
-            request.setValue("Bearer \(settings.apiKey)", forHTTPHeaderField: "Authorization")
+        if !apiKey.isEmpty {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         }
 
-        let profile = settings.activeProfile
         var payload: [String: Any] = [
-            "model": settings.model,
+            "model": model,
             "temperature": profile.id == "formal" ? 0.2 : 0,
             "messages": [
                 ["role": "system", "content": profile.systemPrompt],
                 ["role": "user", "content": text]
             ]
         ]
-        if let reasoningEffort = apiReasoningEffort(for: profile.reasoningEffort, settings: settings) {
+        if let reasoningEffort = apiReasoningEffort(for: profile.reasoningEffort, apiBaseURL: apiBaseURL) {
             payload["reasoning_effort"] = reasoningEffort
         }
 
@@ -38,7 +41,7 @@ final class LLMRefiner {
             return nil
         }
 
-        VoiceTypeLogger.log("llm.refine.request url=\(url.absoluteString) model=\(settings.model) profile=\(profile.name) effort=\(profile.reasoningEffort.rawValue) apiEffort=\(payload["reasoning_effort"] ?? "omitted") chars=\(text.count)")
+        VoiceTypeLogger.log("llm.refine.request url=\(url.absoluteString) model=\(model) profile=\(profile.name) effort=\(profile.reasoningEffort.rawValue) apiEffort=\(payload["reasoning_effort"] ?? "omitted") chars=\(text.count)")
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
             if let error {
                 VoiceTypeLogger.error("llm.refine.network.failed", error: error)
@@ -82,36 +85,26 @@ final class LLMRefiner {
     }
 
     private func refineWithoutReasoning(text: String, settings: LLMSettings, completion: @escaping (Result<String, Error>) -> Void) {
-        var retrySettings = settings
         let profile = settings.activeProfile
-        let retryProfile = LLMProfile(
-            id: profile.id,
-            name: profile.name,
-            systemPrompt: profile.systemPrompt,
-            reasoningEffort: profile.reasoningEffort,
-            segmentationStrategy: profile.segmentationStrategy,
-            pauseThresholdSeconds: profile.pauseThresholdSeconds
-        )
-        retrySettings.profiles = settings.profiles.map { existing in
-            existing.id == profile.id ? retryProfile : existing
-        }
-
-        guard let url = endpoint(base: retrySettings.apiBaseURL, path: "chat/completions") else {
+        let apiBaseURL = settings.activeAPIBaseURL
+        let apiKey = settings.activeAPIKey
+        let model = settings.activeModel
+        guard let url = endpoint(base: apiBaseURL, path: "chat/completions") else {
             completion(.failure(NSError.voiceType("Invalid LLM API Base URL")))
             return
         }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = timeout(for: retrySettings.activeProfile.reasoningEffort)
+        request.timeoutInterval = timeout(for: profile.reasoningEffort)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if !retrySettings.apiKey.isEmpty {
-            request.setValue("Bearer \(retrySettings.apiKey)", forHTTPHeaderField: "Authorization")
+        if !apiKey.isEmpty {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         }
         let retryPayload: [String: Any] = [
-            "model": retrySettings.model,
-            "temperature": retryProfile.id == "formal" ? 0.2 : 0,
+            "model": model,
+            "temperature": profile.id == "formal" ? 0.2 : 0,
             "messages": [
-                ["role": "system", "content": retryProfile.systemPrompt],
+                ["role": "system", "content": profile.systemPrompt],
                 ["role": "user", "content": text]
             ]
         ]
@@ -123,7 +116,7 @@ final class LLMRefiner {
             return
         }
 
-        VoiceTypeLogger.log("llm.refine.retry.request url=\(url.absoluteString) model=\(retrySettings.model) profile=\(retryProfile.name) chars=\(text.count)")
+        VoiceTypeLogger.log("llm.refine.retry.request url=\(url.absoluteString) model=\(model) profile=\(profile.name) chars=\(text.count)")
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error {
                 VoiceTypeLogger.error("llm.refine.retry.network.failed", error: error)
@@ -183,8 +176,8 @@ final class LLMRefiner {
         }
     }
 
-    private func apiReasoningEffort(for effort: ReasoningEffort, settings: LLMSettings) -> String? {
-        if isLocalOllama(baseURL: settings.apiBaseURL) {
+    private func apiReasoningEffort(for effort: ReasoningEffort, apiBaseURL: String) -> String? {
+        if isLocalOllama(baseURL: apiBaseURL) {
             switch effort {
             case .minimal, .low:
                 return "none"
@@ -193,6 +186,10 @@ final class LLMRefiner {
             case .high:
                 return "medium"
             }
+        }
+
+        if isDeepSeek(baseURL: apiBaseURL), effort == .minimal {
+            return nil
         }
 
         switch effort {
@@ -214,6 +211,14 @@ final class LLMRefiner {
             return false
         }
         return host == "localhost" || host == "127.0.0.1" || host == "::1"
+    }
+
+    private func isDeepSeek(baseURL: String) -> Bool {
+        guard let url = URL(string: baseURL.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let host = url.host?.lowercased() else {
+            return false
+        }
+        return host == "api.deepseek.com" || host.hasSuffix(".deepseek.com")
     }
 }
 

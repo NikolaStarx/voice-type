@@ -251,9 +251,7 @@ final class DictationPipeline {
     }
 
     private func shouldRefine(_ settings: LLMSettings) -> Bool {
-        settings.enabled &&
-        !settings.apiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !settings.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        settings.enabled && settings.isActiveProfileConfigured
     }
 
     private func segments(for text: String, job: DictationJob) -> [TranscriptSegment] {

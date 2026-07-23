@@ -134,9 +134,6 @@ final class LLMSettingsWindowController: NSWindowController {
         settings = store.llm
         selectedProfileIndex = max(0, settings.profiles.firstIndex { $0.id == settings.activeProfileID } ?? 0)
         enabledButton.state = settings.enabled ? .on : .off
-        baseField.stringValue = settings.apiBaseURL
-        keyField.stringValue = settings.apiKey
-        modelField.stringValue = settings.model
         reloadProfilePopup()
         loadSelectedProfile()
     }
@@ -153,17 +150,24 @@ final class LLMSettingsWindowController: NSWindowController {
     private func loadSelectedProfile() {
         guard selectedProfileIndex < settings.profiles.count else { return }
         let profile = settings.profiles[selectedProfileIndex]
+        baseField.stringValue = profile.apiBaseURL ?? settings.apiBaseURL
+        keyField.stringValue = profile.apiKey ?? settings.apiKey
+        modelField.stringValue = profile.model ?? settings.model
         profileNameField.stringValue = profile.name
         promptView.string = profile.systemPrompt
         reasoningPopup.selectItem(at: ReasoningEffort.allCases.firstIndex(of: profile.reasoningEffort) ?? 0)
         segmentationPopup.selectItem(at: RefinementSegmentationStrategy.allCases.firstIndex(of: profile.segmentationStrategy) ?? 0)
         pauseThresholdField.stringValue = String(format: "%.2f", profile.pauseThresholdSeconds)
+        statusLabel.stringValue = "API settings for \(profile.name)"
         segmentationChanged()
     }
 
     private func captureSelectedProfile() {
         guard selectedProfileIndex < settings.profiles.count else { return }
         var profile = settings.profiles[selectedProfileIndex]
+        profile.apiBaseURL = baseField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        profile.apiKey = keyField.stringValue
+        profile.model = modelField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let name = profileNameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         profile.name = name.isEmpty ? "Untitled" : name
         profile.systemPrompt = promptView.string
@@ -182,9 +186,13 @@ final class LLMSettingsWindowController: NSWindowController {
 
     @objc private func addProfile() {
         captureSelectedProfile()
+        let sourceProfile = settings.profiles[selectedProfileIndex]
         let profile = LLMProfile(
             id: UUID().uuidString,
             name: "Custom",
+            apiBaseURL: sourceProfile.apiBaseURL,
+            apiKey: sourceProfile.apiKey,
+            model: sourceProfile.model,
             systemPrompt: LLMProfile.defaultProfiles[0].systemPrompt,
             reasoningEffort: .low,
             segmentationStrategy: .smartSentences,
@@ -219,9 +227,6 @@ final class LLMSettingsWindowController: NSWindowController {
     @objc private func save() {
         captureSelectedProfile()
         settings.enabled = enabledButton.state == .on
-        settings.apiBaseURL = baseField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        settings.apiKey = keyField.stringValue
-        settings.model = modelField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         settings.activeProfileID = settings.profiles[selectedProfileIndex].id
         store.llm = settings
         reloadProfilePopup()
@@ -232,9 +237,6 @@ final class LLMSettingsWindowController: NSWindowController {
         captureSelectedProfile()
         var testSettings = settings
         testSettings.enabled = true
-        testSettings.apiBaseURL = baseField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        testSettings.apiKey = keyField.stringValue
-        testSettings.model = modelField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         testSettings.activeProfileID = settings.profiles[selectedProfileIndex].id
 
         statusLabel.stringValue = "Testing..."

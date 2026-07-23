@@ -211,6 +211,9 @@ enum RefinementSegmentationStrategy: String, CaseIterable, Codable {
 struct LLMProfile: Codable, Identifiable, Equatable {
     var id: String
     var name: String
+    var apiBaseURL: String?
+    var apiKey: String?
+    var model: String?
     var systemPrompt: String
     var reasoningEffort: ReasoningEffort
     var segmentationStrategy: RefinementSegmentationStrategy
@@ -219,6 +222,9 @@ struct LLMProfile: Codable, Identifiable, Equatable {
     init(
         id: String,
         name: String,
+        apiBaseURL: String? = "http://localhost:11434/v1",
+        apiKey: String? = "",
+        model: String? = "qwen3.5:2b",
         systemPrompt: String,
         reasoningEffort: ReasoningEffort,
         segmentationStrategy: RefinementSegmentationStrategy,
@@ -226,6 +232,9 @@ struct LLMProfile: Codable, Identifiable, Equatable {
     ) {
         self.id = id
         self.name = name
+        self.apiBaseURL = apiBaseURL
+        self.apiKey = apiKey
+        self.model = model
         self.systemPrompt = systemPrompt
         self.reasoningEffort = reasoningEffort
         self.segmentationStrategy = segmentationStrategy
@@ -235,6 +244,9 @@ struct LLMProfile: Codable, Identifiable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case id
         case name
+        case apiBaseURL
+        case apiKey
+        case model
         case systemPrompt
         case reasoningEffort
         case segmentationStrategy
@@ -245,6 +257,9 @@ struct LLMProfile: Codable, Identifiable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
+        apiBaseURL = try container.decodeIfPresent(String.self, forKey: .apiBaseURL)
+        apiKey = try container.decodeIfPresent(String.self, forKey: .apiKey)
+        model = try container.decodeIfPresent(String.self, forKey: .model)
         systemPrompt = try container.decode(String.self, forKey: .systemPrompt)
         reasoningEffort = try container.decode(ReasoningEffort.self, forKey: .reasoningEffort)
 
@@ -310,6 +325,8 @@ If the text is already formal and correct, return it as-is.
 
 struct LLMSettings: Codable, Equatable {
     var enabled: Bool
+    // Migration fallbacks for settings saved before API configuration became
+    // profile-specific.
     var apiBaseURL: String
     var apiKey: String
     var model: String
@@ -327,6 +344,23 @@ struct LLMSettings: Codable, Equatable {
 
     var activeProfile: LLMProfile {
         profiles.first { $0.id == activeProfileID } ?? profiles.first ?? LLMProfile.defaultProfiles[0]
+    }
+
+    var activeAPIBaseURL: String {
+        activeProfile.apiBaseURL ?? apiBaseURL
+    }
+
+    var activeAPIKey: String {
+        activeProfile.apiKey ?? apiKey
+    }
+
+    var activeModel: String {
+        activeProfile.model ?? model
+    }
+
+    var isActiveProfileConfigured: Bool {
+        !activeAPIBaseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !activeModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 
